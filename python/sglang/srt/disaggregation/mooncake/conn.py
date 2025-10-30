@@ -1232,6 +1232,8 @@ class MooncakeKVReceiver(CommonKVReceiver):
             dst_tp_rank = str(tp_rank).encode("ascii")
             dst_attn_tp_size = str(self.kv_mgr.attn_tp_size).encode("ascii")
             dst_kv_item_len = str(kv_item_len).encode("ascii")
+            target_tp_rank = str(bootstrap_info["target_tp_rank"]).encode("ascii")
+            target_pp_rank = str(bootstrap_info["target_pp_rank"]).encode("ascii")
 
             sock, lock = self._connect_to_bootstrap_server(bootstrap_info)
             with lock:
@@ -1247,6 +1249,9 @@ class MooncakeKVReceiver(CommonKVReceiver):
                         dst_tp_rank,
                         dst_attn_tp_size,
                         dst_kv_item_len,
+                        str(self.bootstrap_room).encode("ascii"),
+                        target_tp_rank,
+                        target_pp_rank,
                     ]
                 )
 
@@ -1267,6 +1272,8 @@ class MooncakeKVReceiver(CommonKVReceiver):
         for bootstrap_info in self.bootstrap_infos:
             sock, lock = self._connect_to_bootstrap_server(bootstrap_info)
             is_dummy = bootstrap_info["is_dummy"]
+            target_tp_rank = str(bootstrap_info["target_tp_rank"]).encode("ascii")
+            target_pp_rank = str(bootstrap_info["target_pp_rank"]).encode("ascii")
 
             with lock:
                 sock.send_multipart(
@@ -1286,6 +1293,8 @@ class MooncakeKVReceiver(CommonKVReceiver):
                             else b""
                         ),
                         str(self.required_dst_info_num).encode("ascii"),
+                        target_tp_rank,
+                        target_pp_rank,
                     ]
                 )
         self.init_time = time.time()

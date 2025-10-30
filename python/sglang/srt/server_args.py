@@ -2452,6 +2452,7 @@ class ServerArgs:
                 "round_robin",
                 "shortest_queue",
                 "minimum_tokens",
+                "dp_minimum_tokens",
             ],
         )
         parser.add_argument(
@@ -3900,6 +3901,8 @@ class PortArgs:
     tokenizer_ipc_name: str
     # The ipc filename for scheduler (rank 0) to receive inputs from tokenizer (zmq)
     scheduler_input_ipc_name: str
+    # The ipc filename for scheduler (rank 0) to receive inputs from tokenizer (zmq)
+    dp_controller_ipc_name: str
     # The ipc filename for detokenizer to receive inputs from scheduler (zmq)
     detokenizer_ipc_name: str
 
@@ -3945,6 +3948,7 @@ class PortArgs:
             return PortArgs(
                 tokenizer_ipc_name=f"ipc://{tempfile.NamedTemporaryFile(delete=False).name}",
                 scheduler_input_ipc_name=f"ipc://{tempfile.NamedTemporaryFile(delete=False).name}",
+                sdp_controller_ipc_name=f"ipc://{tempfile.NamedTemporaryFile(delete=False).name}",
                 detokenizer_ipc_name=f"ipc://{tempfile.NamedTemporaryFile(delete=False).name}",
                 nccl_port=nccl_port,
                 rpc_ipc_name=f"ipc://{tempfile.NamedTemporaryFile(delete=False).name}",
@@ -3979,6 +3983,7 @@ class PortArgs:
             return PortArgs(
                 tokenizer_ipc_name=f"tcp://{dist_init_host}:{port_base}",
                 scheduler_input_ipc_name=f"tcp://{dist_init_host}:{scheduler_input_port}",
+                dp_controller_ipc_name=f"tcp://{dist_init_host}:{scheduler_input_port}",
                 detokenizer_ipc_name=f"tcp://{dist_init_host}:{detokenizer_port}",
                 nccl_port=nccl_port,
                 rpc_ipc_name=f"tcp://{dist_init_host}:{rpc_port}",

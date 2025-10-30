@@ -1459,6 +1459,10 @@ class BlockReqInput(BaseReq):
 class GetLoadReqInput(BaseReq):
     pass
 
+@dataclass
+class GetDPInternalLoadOutput(BaseReq):
+    dp_rank: int
+    num_tokens: int
 
 @dataclass
 class GetLoadReqOutput(BaseReq):

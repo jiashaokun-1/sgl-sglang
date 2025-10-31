@@ -300,7 +300,9 @@ class DataParallelController:
             lowest_load_rank = req.data_parallel_rank
         else:
             lowest_load_rank = self.get_target_dp_by_bootstrap(req.bootstrap_room)
-
+            
+        with self.dp_load_lock:
+            self.dp_workers_loads[lowest_load_rank] += len(req.input_ids)
         self.workers[lowest_load_rank].send_pyobj(req)
 
     def get_target_dp_by_bootstrap(self, bootstrap_room):

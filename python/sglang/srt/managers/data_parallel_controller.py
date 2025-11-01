@@ -91,15 +91,28 @@ class LoadBalanceMethod(Enum):
 
 
 class DPBudget:
-    def __init__(self):
+    def __init__(self, dp_size: int):
         # TODO: support minimum tokens method
         self.budget_queue = deque()
+        self.dp_tokens_loads = {rank: 0 for rank in range(dp_size)}
+        self.load_lock = threading.Lock()
+
+    def get_minimum_tokens_dp_rank(self):
+        with self.load_lock:
+            lowest_load_rank = int(random.choice([k for k,v in self.dp_tokens_loads.items() if v == min(self.dp_tokens_loads.values())]))
+        return lowest_load_rank
+
+    def add_num_tokens(self, dp_rank, num_tokens):
+        with self.load_lock:
+            self.dp_tokens_loads[dp_rank] += num_tokens
 
     def update_budget(self, load_update: WatchLoadUpdateReq):
         """Update the budget queue.
         Use num_reqs instead of num_waiting_reqs to balance decode running batch.
         """
         loads = load_update.loads
+        with self.load_lock:
+            self.dp_tokens_loads.update((load.dp_rank, load.num_tokens) for load in loads)
         self.budget_queue.clear()
 
         num_reqs = [load.num_reqs for load in loads]
@@ -159,7 +172,7 @@ class DataParallelController:
         self.dispatching = dispatch_lookup[self.load_balance_method]
 
         # Load balance budget
-        self.dp_budget = DPBudget()
+        self.dp_budget = DPBudget(server_args.dp_size)
 
         # To protect changing env vars to set CUDA_VISIBLE_DEVICES.
         self.env_lock = threading.Lock()
@@ -300,9 +313,8 @@ class DataParallelController:
             lowest_load_rank = req.data_parallel_rank
         else:
             lowest_load_rank = self.get_target_dp_by_bootstrap(req.bootstrap_room)
-            
-        with self.dp_load_lock:
-            self.dp_workers_loads[lowest_load_rank] += len(req.input_ids)
+
+        self.dp_budget.add_num_tokens(lowest_load_rank, len(req.input_ids))
         self.workers[lowest_load_rank].send_pyobj(req)
 
     def get_target_dp_by_bootstrap(self, bootstrap_room):
@@ -311,7 +323,7 @@ class DataParallelController:
             if bootstrap_room in self.bootstrap_room_to_worker:
                 return self.bootstrap_room_to_worker[room]
             else:
-                lowest_load_rank = int(random.choice([k for k,v in self.dp_workers_loads.items() if v == min(self.dp_workers_loads.values())]))
+                lowest_load_rank = self.dp_budget.get_minimum_tokens_dp_rank()
                 if self.server_args.disaggregation_mode == "prefill":
                     self.bootstrap_room_to_worker[room] = lowest_load_rank
                     logger.debug(f"load balance req.bootstrap_room is {bootstrap_room},load to dp:{lowest_load_rank}")

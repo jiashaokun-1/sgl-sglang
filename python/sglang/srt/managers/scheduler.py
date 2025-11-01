@@ -582,14 +582,14 @@ class Scheduler(
                 (GetLoadReqInput, self.get_load),
             ]
         )
-        from sglang.srt.managers.data_parallel_controller import LoadBalanceMethod
-        self.load_balance_method = LoadBalanceMethod.from_str(
-            server_args.load_balance_method
-        )
-        if self.load_balance_method == LoadBalanceMethod.DP_MINIMUM_TOKENS and self.attn_tp_rank == 0:
-            self.dp_load_interval = 2
-            self.recv_dp_load_thread = threading.Thread(target=self.report_load_info_periodical)
-            self.recv_dp_load_thread.start()
+        # from sglang.srt.managers.data_parallel_controller import LoadBalanceMethod
+        # self.load_balance_method = LoadBalanceMethod.from_str(
+        #     server_args.load_balance_method
+        # )
+        # if self.load_balance_method == LoadBalanceMethod.DP_MINIMUM_TOKENS and self.attn_tp_rank == 0:
+        #     self.dp_load_interval = 2
+        #     self.recv_dp_load_thread = threading.Thread(target=self.report_load_info_periodical)
+        #     self.recv_dp_load_thread.start()
 
 
     def report_load_info_periodical(self):

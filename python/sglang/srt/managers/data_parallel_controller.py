@@ -21,6 +21,7 @@ import socket
 import threading
 import time
 import random
+import struct
 from collections import deque
 from enum import Enum, auto
 from typing import List, Optional
@@ -194,13 +195,15 @@ class DataParallelController:
         if self.server_args.disaggregation_mode == "prefill" and self.load_balance_method == LoadBalanceMethod.DP_MINIMUM_TOKENS and server_args.node_rank == 0:
             self.dp_workers_loads = {dp_rank: 0 for dp_rank in range(server_args.dp_size)}
             self.bootstrap_room_to_worker: dict = {}
+            self.kv_socket_pool = {}
+            self.kv_socket_lock_pool = {}
             self.dp_load_lock = threading.Lock()
-            self.recv_dp_load_thread = threading.Thread(target=self.launch_dp_load_forward)
-            self.recv_dp_load_thread.start()
+            self.global_forward_lock = threading.Lock()
+            self.kv_context = zmq.Context()
+            self.launch_dp_load_forward()
 
-    def launch_dp_load_forward(self):
-        self.local_ip = get_local_ip_auto()
-        self.port = get_free_port()
+
+    def get_bootstrap_server_url(self):
         if self.server_args.dist_init_addr:
             if self.server_args.dist_init_addr.startswith("["):  # [ipv6]:port or [ipv6]
                 if self.server_args.dist_init_addr.endswith("]"):
@@ -213,13 +216,58 @@ class DataParallelController:
             # Single-node case: bootstrap server's host is the same as http server's host
             self.host = self.server_args.host
             self.host = maybe_wrap_ipv6_address(self.host)
+        return f"{self.host}:{self.server_args.disaggregation_bootstrap_port}"
 
-        bootstrap_server_url = f"{self.host}:{self.server_args.disaggregation_bootstrap_port}"
+    def get_info_from_kv_receiver(self, port, kv_server_socket):
+        if is_valid_ipv6_address(self.local_ip):
+            kv_server_socket.setsockopt(zmq.IPV6, 1)
+        kv_server_socket.bind(format_tcp_address(self.local_ip, port))
+        while True:
+            msgs = kv_server_socket.recv_multipart()
+            room = msgs[0].decode("ascii")
+            target_tp_rank = None
+            if room == "None":
+                room = msgs[10].decode("ascii")
+                target_tp_rank = msgs[11].decode("ascii")
+                target_pp_rank = msgs[12].decode("ascii")
+                for dp_rank_iter in range(self.server_args.dp_size):
+                    sock, lock = self._get_socket_key_by_rank(dp_rank_iter, target_tp_rank, target_pp_rank)
+                    if sock is not None:
+                        with lock:
+                            sock.send_multipart(msgs)
+            else:
+                target_tp_rank = msgs[8].decode("ascii")           
+                target_pp_rank = msgs[9].decode("ascii")
+                recv_t1 = struct.unpack('d', msgs[10])[0]
+                cur_time = time.time()
+                interval1 = (cur_time- recv_t1) * 1000
+                logger.info(f"jskTest receiver 1 room:{room}, time interval: {interval1:.1f}ms")
+                msgs.append(struct.pack('d', cur_time))
+                target_dp_rank = self.get_target_dp_by_bootstrap(int(room))
+                sock, lock= self._get_socket_key_by_rank(target_dp_rank, target_tp_rank, target_pp_rank)
+                if sock is not None:
+                    with lock:
+                        sock.send_multipart(msgs)
+
+    def launch_dp_load_forward(self):
+        self.local_ip = get_local_ip_auto()
+        bootstrap_infos = []
+        for dp_rank in range(self.server_args.dp_size):
+            port = get_free_port()
+            kv_server_socket = self.kv_context.socket(zmq.PULL)
+            threading.Thread(target=self.get_info_from_kv_receiver, args=(port, kv_server_socket)).start()
+            bootstrap_info = {
+                "dp_rank": dp_rank,
+                "rank_ip": self.local_ip,
+                "rank_port": port,
+            }
+            bootstrap_infos.append(bootstrap_info)
+        
+        bootstrap_server_url = self.get_bootstrap_server_url()
         url = f"http://{bootstrap_server_url}/route"
         payload = {
             "role": "Dp_controller",
-            "rank_ip": self.local_ip,
-            "rank_port": self.port,
+            "bootstrap_infos": bootstrap_infos
         }
         try:
             response = requests.put(url, json=payload, timeout=5)
@@ -233,48 +281,20 @@ class DataParallelController:
             logger.error(
                 f"Dp controller  failed to register to bootstrap server: {e}"
             )
-
-        self.kv_context = zmq.Context()
-        self.kv_server_socket = self.kv_context.socket(zmq.PULL)
-        if is_valid_ipv6_address(self.local_ip):
-            self.kv_server_socket.setsockopt(zmq.IPV6, 1)
-        self.kv_server_socket.bind(format_tcp_address(self.local_ip, self.port))
-        self.kv_socket_pool = {}
-        self.forward_lock = threading.Lock()
-        while True:
-            msgs = self.kv_server_socket.recv_multipart()
-            room = msgs[0].decode("ascii")
-            target_tp_rank = None
-            if room == "None":
-                room = msgs[10].decode("ascii")
-                target_tp_rank = msgs[11].decode("ascii")
-                target_pp_rank = msgs[12].decode("ascii")
-                for dp_rank_iter in range(self.server_args.dp_size):
-                    sock = self._get_socket_key_by_rank(dp_rank_iter, target_tp_rank, target_pp_rank)
-                    if sock is not None:
-                        with self.forward_lock:
-                            sock.send_multipart(msgs)
-            else:
-                target_tp_rank = msgs[8].decode("ascii")           
-                target_pp_rank = msgs[9].decode("ascii")
-                target_dp_rank = self.get_target_dp_by_bootstrap(int(room))
-                sock = self._get_socket_key_by_rank(target_dp_rank, target_tp_rank, target_pp_rank)
-                if sock is not None:
-                    with self.forward_lock:
-                        sock.send_multipart(msgs)
-
+        
     def _get_socket_key_by_rank(self, target_dp_rank, target_tp_rank, target_pp_rank):
         socket_key = f"{target_dp_rank}_{target_tp_rank}_{target_pp_rank}"
-        if socket_key not in self.kv_socket_pool:
-            bootstrap_info = self._get_info_from_bootstrap_server(target_tp_rank, target_dp_rank, target_pp_rank)
-            if bootstrap_info is not None:
-                sock = self._create_socket_by_bootstrap_info(bootstrap_info)
-                self.kv_socket_pool[socket_key] = sock
-                return sock
-            else:
-                logger.error("jskTest without bootstrap info when dp controller foward kv info")
-                return None
-        return self.kv_socket_pool[socket_key]
+        with self.global_forward_lock:
+            if socket_key not in self.kv_socket_pool:
+                bootstrap_info = self._get_info_from_bootstrap_server(target_tp_rank, target_dp_rank, target_pp_rank)
+                if bootstrap_info is not None:
+                    sock = self._create_socket_by_bootstrap_info(bootstrap_info)
+                    self.kv_socket_pool[socket_key] = sock
+                    self.kv_socket_lock_pool[socket_key] = threading.Lock()
+                else:
+                    logger.error("jskTest without bootstrap info when dp controller foward kv info")
+                    return None, None
+            return self.kv_socket_pool[socket_key], self.kv_socket_lock_pool[socket_key] 
 
     def _create_socket_by_bootstrap_info(self, bootstrap_info: dict):
         ip_address = bootstrap_info["rank_ip"]

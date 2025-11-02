@@ -876,6 +876,12 @@ class MooncakeKVManager(CommonKVManager):
                 else:
                     required_dst_info_num = int(waiting_req_bytes[7].decode("ascii"))
                     room = int(room)
+                    cur_time = time.time()
+                    recv_t2 = struct.unpack('d', waiting_req_bytes[10])[0]
+                    recv_t1 = struct.unpack('d', waiting_req_bytes[11])[0]
+                    interval2 = (cur_time - recv_t2) * 1000
+                    interval1 = (cur_time - recv_t1) * 1000
+                    logger.info(f"jskTest receiver 2 room:{room}, time interval1: {interval1:.1f}ms,  time interval2: {interval2:.1f}ms")
                     if room not in self.transfer_infos:
                         self.transfer_infos[room] = {}
 
@@ -1276,6 +1282,9 @@ class MooncakeKVReceiver(CommonKVReceiver):
             target_pp_rank = str(bootstrap_info["target_pp_rank"]).encode("ascii")
 
             with lock:
+                # jskTest TODO
+                send_time = time.time()
+                send_time_bytes = struct.pack('d', send_time)
                 sock.send_multipart(
                     [
                         str(self.bootstrap_room).encode("ascii"),
@@ -1295,6 +1304,7 @@ class MooncakeKVReceiver(CommonKVReceiver):
                         str(self.required_dst_info_num).encode("ascii"),
                         target_tp_rank,
                         target_pp_rank,
+                        send_time_bytes,
                     ]
                 )
         self.init_time = time.time()

@@ -509,7 +509,8 @@ class CommonKVBootstrapServer(BaseKVBootstrapServer):
                     "rank_ip": bootstrap_info["rank_ip"],
                     "rank_port": bootstrap_info["rank_port"],
                 }
-                self.dpc_bootstrap_infos[bootstrap_info["dp_rank"], info]
+                self.dpc_bootstrap_infos[bootstrap_info["dp_rank"]] =  info
+                print("jskTest dp_rank type:", type(bootstrap_info["dp_rank"]))
             logger.info(
                 f"jskTest Register dp controller bootstrap: data:{data}, self.dpc_bootstrap_infos:{self.dpc_bootstrap_infos}"
             )

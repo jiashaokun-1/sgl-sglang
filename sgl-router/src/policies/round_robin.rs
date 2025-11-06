@@ -3,6 +3,7 @@
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
+    RwLock,
 };
 
 use super::{get_healthy_worker_indices, LoadBalancingPolicy};
@@ -14,6 +15,7 @@ use crate::{core::Worker, metrics::RouterMetrics};
 #[derive(Debug, Default)]
 pub struct RoundRobinPolicy {
     counter: AtomicUsize,
+    dp_cached_loads: RwLock<HashMap<String, HashMap<isize, isize>>
 }
 
 impl RoundRobinPolicy {
@@ -56,6 +58,34 @@ impl LoadBalancingPolicy for RoundRobinPolicy {
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+
+    fn update_dp_loads(&self, loads: &HashMap<String, HashMap<isize, isize>) {
+        if let Ok(mut cached) = self.dp_cached_loads.write() {
+            *cached = loads.clone();
+        }
+    }
+    
+
+    fn get_lowest_dp_load(&self, worker: &dyn Worker) -> Option<isize> {
+        if let Ok(cached_loads) = self.dp_cached_loads.read() {
+            if let Some(&loads) = cached_loads.get(worker.url()) {
+                loads.iter()
+                .min_by_key(|&(_, load)| load)
+                .map(|(&rand_id, _)| rand_id)
+            }
+        }
+        None
+    }
+
+    fn load_increment(&self, worker: &dyn Worker, dp_rank: isize, tokens: isize) {
+        if let Ok(cached_loads) = self.dp_cached_loads.write() {
+            if let Some(&loads) = cached_loads.get(worker.url()) {
+                if let some(dp_load) = loads.get_mut(&dp_rank) {
+                    *dp_load += tokens;
+                }
+            }
+        }
     }
 }
 

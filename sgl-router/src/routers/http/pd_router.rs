@@ -291,7 +291,8 @@ impl PDRouter {
                             Ok(v) => v,
                             Err(e) => return Self::handle_serialization_error(e),
                         };
-
+                        // data_parallel_rank
+                        self.select_data_parallel_rank(json_request, prefill.as_ref(), context.request_text.as_deref());
                         let response = self
                             .execute_dual_dispatch_internal(
                                 headers,
@@ -546,6 +547,33 @@ impl PDRouter {
         let prefill_policy = self.policy_registry.get_prefill_policy();
         let decode_policy = self.policy_registry.get_decode_policy();
         prefill_policy.needs_request_text() || decode_policy.needs_request_text()
+    }
+
+    async fn select_data_parallel_rank(&self, mut original: Value, worker: &dyn Worker, request_text: Option<&str>) -> Result<Value, String> {
+        let obj = original
+            .as_object_mut()
+            .ok_or_else(|| "Request must be a JSON object".to_string())?;
+
+        let length = match request_text {
+            Some(s) => s.len(),
+            None => 0,
+        };
+        let prefill_policy = self.policy_registry.get_prefill_policy();
+        if prefill_policy.name() == "round_robin" {
+            let lowest_dp_rank = prefill_policy.get_lowest_dp_load(worker.as_ref())
+            obj.insert(
+                "data_parallel_rank".to_string(),
+                match lowest_dp_rank {
+                    Some(v) => Value::from(v),
+                    None => Value::Null,
+                },
+            );
+            if let Some(dp_rank) = lowest_dp_rank {
+                prefill_policy.load_increment(worker.as_ref, dp_rank, length)
+            }
+        }
+
+        ok(original)
     }
 
     async fn select_pd_pair(

@@ -4,6 +4,7 @@
 //! across both regular and prefill-decode (PD) routing modes.
 
 use std::{fmt::Debug, sync::Arc};
+use std::collections::{HashMap};
 
 use crate::core::Worker;
 
@@ -71,8 +72,20 @@ pub trait LoadBalancingPolicy: Send + Sync + Debug {
     /// Update worker load information
     ///
     /// This is called periodically with current load information for load-aware policies.
-    fn update_loads(&self, _loads: &std::collections::HashMap<String, isize>) {
+    fn update_loads(&self, _loads: &HashMap<String, isize>) {
         // Default: no-op for policies that don't use load information
+    }
+
+    fn update_dp_loads(&self, _loads: &HashMap<String, HashMap<isize, isize>>) {
+        // Default: no-op for policies that don't use load information
+    }
+
+    fn get_lowest_dp_load(&self, worker: &dyn Worker) -> Option<isize> {
+        None
+    }
+
+    fn load_increment(&self, worker: &dyn Worker, dp_rank: isize, tokens: isize) {
+        // Default
     }
 
     /// Reset any internal state

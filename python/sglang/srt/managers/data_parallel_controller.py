@@ -199,7 +199,7 @@ class DataParallelController:
             self.kv_socket_lock_pool = {}
             self.dp_load_lock = threading.Lock()
             self.global_forward_lock = threading.Lock()
-            self.kv_context = zmq.Context()
+            self.kv_context = zmq.Context(3)
             self.launch_dp_load_forward()
 
 
@@ -224,6 +224,7 @@ class DataParallelController:
         kv_server_socket.bind(format_tcp_address(self.local_ip, port))
         while True:
             msgs = kv_server_socket.recv_multipart()
+            start_time = time.time()
             room = msgs[0].decode("ascii")
             target_tp_rank = None
             if room == "None":
@@ -241,13 +242,24 @@ class DataParallelController:
                 recv_t1 = struct.unpack('d', msgs[10])[0]
                 cur_time = time.time()
                 interval1 = (cur_time- recv_t1) * 1000
-                logger.info(f"jskTest receiver 1 room:{room}, time interval: {interval1:.1f}ms")
+                logger.info(f"jskTest receiver 1 room:{room}, port:{port}, time interval: {interval1:.1f}ms")
                 msgs.append(struct.pack('d', cur_time))
-                target_dp_rank = self.get_target_dp_by_bootstrap(int(room))
+                target_dp_rank, s1 = self.get_target_dp_by_bootstrap(int(room))
+                s2 = time.time()
+                forward_time = (s2 - s1) * 1000
+                forward_time2 = (s2 - cur_time) * 1000
                 sock, lock= self._get_socket_key_by_rank(target_dp_rank, target_tp_rank, target_pp_rank)
+                s3 = time.time()
+                sock_time = (s3 - s2) * 1000
+                end_time1 = (s3 - cur_time) * 1000
                 if sock is not None:
                     with lock:
+                        s4 = time.time()
                         sock.send_multipart(msgs)
+                        send_time = (time.time() - s4) * 1000
+                end_time2 = (time.time() - start_time) * 1000
+                logger.info(f"jskTest receiver 1.5 port:{port}, forward_time:{forward_time:.1f}ms, forward_time2:{forward_time2:.1f}ms, sock_time:{sock_time:.1f}ms, send_time:{send_time:.1f}ms, time1:{end_time1:.1f}ms, time2:{end_time2:.1f}ms")
+                
 
     def launch_dp_load_forward(self):
         self.local_ip = get_local_ip_auto()
@@ -332,22 +344,23 @@ class DataParallelController:
             logger.debug(f"Direct routing to DP rank {req.data_parallel_rank}")           
             lowest_load_rank = req.data_parallel_rank
         else:
-            lowest_load_rank = self.get_target_dp_by_bootstrap(req.bootstrap_room)
+            lowest_load_rank, s1 = self.get_target_dp_by_bootstrap(req.bootstrap_room)
 
         self.dp_budget.add_num_tokens(lowest_load_rank, len(req.input_ids))
         self.workers[lowest_load_rank].send_pyobj(req)
 
     def get_target_dp_by_bootstrap(self, bootstrap_room):
         with self.dp_load_lock:
+            s1 = time.time()
             room = int(bootstrap_room)
             if bootstrap_room in self.bootstrap_room_to_worker:
-                return self.bootstrap_room_to_worker[room]
+                return self.bootstrap_room_to_worker[room], s1
             else:
                 lowest_load_rank = self.dp_budget.get_minimum_tokens_dp_rank()
                 if self.server_args.disaggregation_mode == "prefill":
                     self.bootstrap_room_to_worker[room] = lowest_load_rank
                     logger.debug(f"load balance req.bootstrap_room is {bootstrap_room},load to dp:{lowest_load_rank}")
-                return lowest_load_rank
+                return lowest_load_rank, s1
 
     def send_to_all_workers(self, obj):
         for worker in self.workers:

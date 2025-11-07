@@ -112,6 +112,7 @@ from sglang.srt.managers.io_struct import (
     UpdateWeightsFromDistributedReqInput,
     UpdateWeightsFromIPCReqInput,
     UpdateWeightsFromTensorReqInput,
+    GetDPInternalLoadOutput,
 )
 from sglang.srt.managers.mm_utils import init_embedding_cache
 from sglang.srt.managers.overlap_utils import FutureMap
@@ -567,6 +568,22 @@ class Scheduler(
                 (GetLoadReqInput, self.get_load),
             ]
         )
+        # from sglang.srt.managers.data_parallel_controller import LoadBalanceMethod
+        # self.load_balance_method = LoadBalanceMethod.from_str(
+        #     server_args.load_balance_method
+        # )
+        # if self.load_balance_method == LoadBalanceMethod.DP_MINIMUM_TOKENS and self.attn_tp_rank == 0:
+        #     self.dp_load_interval = 2
+        #     self.recv_dp_load_thread = threading.Thread(target=self.report_load_info_periodical)
+        #     self.recv_dp_load_thread.start()
+
+
+    def report_load_info_periodical(self):
+        while True:
+            num_tokens = self.get_num_tokens_load()
+            self.send_to_dp_controller.send_pyobj(GetDPInternalLoadOutput(dp_rank=self.dp_rank, num_tokens=num_tokens))
+            time.sleep(self.dp_load_interval)
+
 
     def init_sockets(self, server_args: ServerArgs, port_args: PortArgs):
         context = zmq.Context(2)
@@ -604,6 +621,10 @@ class Scheduler(
 
             send_to_tokenizer = get_zmq_socket(
                 context, zmq.PUSH, port_args.tokenizer_ipc_name, False
+            )
+            self.dp_controller_ipc_name = port_args.dp_controller_ipc_name
+            self.send_to_dp_controller = get_zmq_socket(
+                context, zmq.PUSH, port_args.dp_controller_ipc_name, False
             )
             if server_args.skip_tokenizer_init:
                 # Directly send to the TokenizerManager
@@ -2381,6 +2402,20 @@ class Scheduler(
     def get_load(self, recv_req: GetLoadReqInput = None) -> GetLoadReqOutput:
         # TODO(lsyin): use dynamically maintained num_waiting_tokens
 
+        num_tokens = self.get_num_tokens_load()
+        num_waiting_reqs = len(self.waiting_queue)
+        if self.disaggregation_mode == DisaggregationMode.PREFILL:       
+            num_waiting_reqs += len(self.disagg_prefill_bootstrap_queue.queue)
+        elif self.disaggregation_mode == DisaggregationMode.DECODE:
+            num_waiting_reqs += len(self.disagg_decode_prealloc_queue.queue)
+        return GetLoadReqOutput(
+            dp_rank=self.dp_rank,
+            num_reqs=len(self.running_batch.reqs) + num_waiting_reqs,
+            num_waiting_reqs=num_waiting_reqs,
+            num_tokens=num_tokens,
+        )
+
+    def get_num_tokens_load(self) -> int:
         if self.is_hybrid:
             num_tokens_full = (
                 self.full_tokens_per_layer
@@ -2408,26 +2443,18 @@ class Scheduler(
 
         # Tokens in waiting queue, bootstrap queue, prealloc queue
         num_tokens += sum(len(req.origin_input_ids) for req in self.waiting_queue)
-        num_waiting_reqs = len(self.waiting_queue)
         if self.disaggregation_mode == DisaggregationMode.PREFILL:
             num_tokens += sum(
                 len(req.origin_input_ids)
                 for req in self.disagg_prefill_bootstrap_queue.queue
             )
-            num_waiting_reqs += len(self.disagg_prefill_bootstrap_queue.queue)
         elif self.disaggregation_mode == DisaggregationMode.DECODE:
             num_tokens += sum(
                 len(req.req.origin_input_ids)
                 for req in self.disagg_decode_prealloc_queue.queue
             )
-            num_waiting_reqs += len(self.disagg_decode_prealloc_queue.queue)
 
-        return GetLoadReqOutput(
-            dp_rank=self.dp_rank,
-            num_reqs=len(self.running_batch.reqs) + num_waiting_reqs,
-            num_waiting_reqs=num_waiting_reqs,
-            num_tokens=num_tokens,
-        )
+        return num_tokens
 
     def get_internal_state(self, recv_req: GetInternalStateReq):
         ret = vars(get_global_server_args())

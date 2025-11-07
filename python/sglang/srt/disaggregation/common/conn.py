@@ -353,6 +353,8 @@ class CommonKVReceiver(BaseKVReceiver):
                         target_tp_rank, self.target_dp_group, target_pp_rank
                     )
                     if bootstrap_info is not None:
+                        bootstrap_info["target_tp_rank"] = target_tp_rank
+                        bootstrap_info["target_pp_rank"] = target_pp_rank
                         if self.kv_mgr.is_mla_backend:
                             # For MLA: target_tp_rank is the selected real rank, others are dummy ranks
                             bootstrap_info["is_dummy"] = not bool(
@@ -466,6 +468,7 @@ class CommonKVBootstrapServer(BaseKVBootstrapServer):
         self.pp_size = None
         self.attn_tp_size = None
         self.dp_size = None
+        self.dpc_bootstrap_infos = None
         self.prefill_port_table: Dict[
             int, Dict[int, Dict[int, Dict[str, Union[str, int]]]]
         ] = {}
@@ -498,6 +501,23 @@ class CommonKVBootstrapServer(BaseKVBootstrapServer):
     async def _handle_route_put(self, request: web.Request):
         data = await request.json()
         role = data["role"]
+        if role == "Dp_controller":
+            bootstrap_infos = data["bootstrap_infos"]
+            self.dpc_bootstrap_infos = {}
+            for bootstrap_info in bootstrap_infos:
+                info = {
+                    "rank_ip": bootstrap_info["rank_ip"],
+                    "rank_port": bootstrap_info["rank_port"],
+                }
+                self.dpc_bootstrap_infos[bootstrap_info["dp_rank"]] =  info
+                print("jskTest dp_rank type:", type(bootstrap_info["dp_rank"]))
+            logger.info(
+                f"jskTest Register dp controller bootstrap: data:{data}, self.dpc_bootstrap_infos:{self.dpc_bootstrap_infos}"
+            )
+            return web.Response(text="OK", status=200)
+
+        rank_ip = data["rank_ip"]
+        rank_port = int(data["rank_port"])
         attn_tp_size = data["attn_tp_size"]
         attn_tp_rank = data["attn_tp_rank"]
         attn_dp_size = data["attn_dp_size"]
@@ -506,8 +526,6 @@ class CommonKVBootstrapServer(BaseKVBootstrapServer):
         pp_rank = data["pp_rank"]
         system_dp_size = data["system_dp_size"]
         system_dp_rank = data["system_dp_rank"]
-        rank_ip = data["rank_ip"]
-        rank_port = int(data["rank_port"])
 
         if self.attn_tp_size is None:
             self.attn_tp_size = attn_tp_size
@@ -560,6 +578,13 @@ class CommonKVBootstrapServer(BaseKVBootstrapServer):
                 "prefill_pp_size": self.pp_size,
             }
             return web.json_response(prefill_parallel_info, status=200)
+        
+        if self.dpc_bootstrap_infos is not None:
+            dpc_role = request.query.get("role")
+            if dpc_role is None:
+                logger.debug(f"forwarding via dp controller")
+                bootstrap_info = self.dpc_bootstrap_infos[int(engine_rank)]
+                return web.json_response(bootstrap_info, status=200)
 
         # Find corresponding prefill info
         async with self.lock:

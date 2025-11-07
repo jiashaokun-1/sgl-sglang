@@ -17,14 +17,18 @@ import faulthandler
 import logging
 import multiprocessing as mp
 import signal
+import socket
 import threading
 import time
+import random
+import struct
 from collections import deque
 from enum import Enum, auto
 from typing import List, Optional
 
 import psutil
 import setproctitle
+import requests
 import zmq
 
 from sglang.srt.layers.dp_attention import compute_dp_attention_world_info
@@ -52,10 +56,18 @@ from sglang.srt.tracing.trace import (
 from sglang.srt.utils import (
     bind_port,
     configure_logger,
+    format_tcp_address,
     get_zmq_socket,
+    get_free_port,
+    get_local_ip_auto,
+    maybe_wrap_ipv6_address,
+    is_valid_ipv6_address,
     kill_itself_when_parent_died,
     maybe_reindex_device_id,
 )
+from sglang.srt.managers.io_struct import (
+    GetDPInternalLoadOutput,
+) 
 from sglang.srt.utils.torch_memory_saver_adapter import TorchMemorySaverAdapter
 from sglang.utils import TypeBasedDispatcher, get_exception_traceback
 
@@ -68,6 +80,7 @@ class LoadBalanceMethod(Enum):
     ROUND_ROBIN = auto()
     SHORTEST_QUEUE = auto()
     MINIMUM_TOKENS = auto()
+    DP_MINIMUM_TOKENS = auto()
 
     @classmethod
     def from_str(cls, method: str):
@@ -79,15 +92,28 @@ class LoadBalanceMethod(Enum):
 
 
 class DPBudget:
-    def __init__(self):
+    def __init__(self, dp_size: int):
         # TODO: support minimum tokens method
         self.budget_queue = deque()
+        self.dp_tokens_loads = {rank: 0 for rank in range(dp_size)}
+        self.load_lock = threading.Lock()
+
+    def get_minimum_tokens_dp_rank(self):
+        with self.load_lock:
+            lowest_load_rank = int(random.choice([k for k,v in self.dp_tokens_loads.items() if v == min(self.dp_tokens_loads.values())]))
+        return lowest_load_rank
+
+    def add_num_tokens(self, dp_rank, num_tokens):
+        with self.load_lock:
+            self.dp_tokens_loads[dp_rank] += num_tokens
 
     def update_budget(self, load_update: WatchLoadUpdateReq):
         """Update the budget queue.
         Use num_reqs instead of num_waiting_reqs to balance decode running batch.
         """
         loads = load_update.loads
+        with self.load_lock:
+            self.dp_tokens_loads.update((load.dp_rank, load.num_tokens) for load in loads)
         self.budget_queue.clear()
 
         num_reqs = [load.num_reqs for load in loads]
@@ -133,7 +159,7 @@ class DataParallelController:
         self.context = zmq.Context(1 + server_args.dp_size)
         if server_args.node_rank == 0:
             self.recv_from_tokenizer = get_zmq_socket(
-                self.context, zmq.PULL, port_args.scheduler_input_ipc_name, False
+                self.context, zmq.PULL, port_args.scheduler_input_ipc_name, True
             )
 
         # Dispatch method
@@ -142,11 +168,12 @@ class DataParallelController:
             LoadBalanceMethod.ROUND_ROBIN: self.round_robin_scheduler,
             LoadBalanceMethod.SHORTEST_QUEUE: self.shortest_queue_scheduler,
             LoadBalanceMethod.MINIMUM_TOKENS: self.minimum_tokens_scheduler,
+            LoadBalanceMethod.DP_MINIMUM_TOKENS: self.dp_minimum_tokens_scheduler,
         }
         self.dispatching = dispatch_lookup[self.load_balance_method]
 
         # Load balance budget
-        self.dp_budget = DPBudget()
+        self.dp_budget = DPBudget(server_args.dp_size)
 
         # To protect changing env vars to set CUDA_VISIBLE_DEVICES.
         self.env_lock = threading.Lock()
@@ -165,6 +192,175 @@ class DataParallelController:
         self.max_req_input_len = None
 
         self.init_dispatcher()
+        if self.server_args.disaggregation_mode == "prefill" and self.load_balance_method == LoadBalanceMethod.DP_MINIMUM_TOKENS and server_args.node_rank == 0:
+            self.dp_workers_loads = {dp_rank: 0 for dp_rank in range(server_args.dp_size)}
+            self.bootstrap_room_to_worker: dict = {}
+            self.kv_socket_pool = {}
+            self.kv_socket_lock_pool = {}
+            self.dp_load_lock = threading.Lock()
+            self.global_forward_lock = threading.Lock()
+            self.kv_context = zmq.Context(3)
+            self.launch_dp_load_forward()
+
+
+    def get_bootstrap_server_url(self):
+        if self.server_args.dist_init_addr:
+            if self.server_args.dist_init_addr.startswith("["):  # [ipv6]:port or [ipv6]
+                if self.server_args.dist_init_addr.endswith("]"):
+                    self.host = self.server_args.dist_init_addr
+                else:
+                    self.host, _ = self.server_args.dist_init_addr.rsplit(":", 1)
+            else:
+                self.host = socket.gethostbyname(self.server_args.dist_init_addr.rsplit(":", 1)[0])
+        else:
+            # Single-node case: bootstrap server's host is the same as http server's host
+            self.host = self.server_args.host
+            self.host = maybe_wrap_ipv6_address(self.host)
+        return f"{self.host}:{self.server_args.disaggregation_bootstrap_port}"
+
+    def get_info_from_kv_receiver(self, port, kv_server_socket):
+        if is_valid_ipv6_address(self.local_ip):
+            kv_server_socket.setsockopt(zmq.IPV6, 1)
+        kv_server_socket.bind(format_tcp_address(self.local_ip, port))
+        while True:
+            msgs = kv_server_socket.recv_multipart()
+            start_time = time.time()
+            room = msgs[0].decode("ascii")
+            target_tp_rank = None
+            if room == "None":
+                room = msgs[10].decode("ascii")
+                target_tp_rank = msgs[11].decode("ascii")
+                target_pp_rank = msgs[12].decode("ascii")
+                for dp_rank_iter in range(self.server_args.dp_size):
+                    sock, lock = self._get_socket_key_by_rank(dp_rank_iter, target_tp_rank, target_pp_rank)
+                    if sock is not None:
+                        with lock:
+                            sock.send_multipart(msgs)
+            else:
+                target_tp_rank = msgs[8].decode("ascii")           
+                target_pp_rank = msgs[9].decode("ascii")
+                recv_t1 = struct.unpack('d', msgs[10])[0]
+                cur_time = time.time()
+                interval1 = (cur_time- recv_t1) * 1000
+                logger.info(f"jskTest receiver 1 room:{room}, port:{port}, time interval: {interval1:.1f}ms")
+                msgs.append(struct.pack('d', cur_time))
+                target_dp_rank, s1 = self.get_target_dp_by_bootstrap(int(room))
+                s2 = time.time()
+                forward_time = (s2 - s1) * 1000
+                forward_time2 = (s2 - cur_time) * 1000
+                sock, lock= self._get_socket_key_by_rank(target_dp_rank, target_tp_rank, target_pp_rank)
+                s3 = time.time()
+                sock_time = (s3 - s2) * 1000
+                end_time1 = (s3 - cur_time) * 1000
+                if sock is not None:
+                    with lock:
+                        s4 = time.time()
+                        sock.send_multipart(msgs)
+                        send_time = (time.time() - s4) * 1000
+                end_time2 = (time.time() - start_time) * 1000
+                logger.info(f"jskTest receiver 1.5 port:{port}, forward_time:{forward_time:.1f}ms, forward_time2:{forward_time2:.1f}ms, sock_time:{sock_time:.1f}ms, send_time:{send_time:.1f}ms, time1:{end_time1:.1f}ms, time2:{end_time2:.1f}ms")
+                
+
+    def launch_dp_load_forward(self):
+        self.local_ip = get_local_ip_auto()
+        bootstrap_infos = []
+        for dp_rank in range(self.server_args.dp_size):
+            port = get_free_port()
+            kv_server_socket = self.kv_context.socket(zmq.PULL)
+            threading.Thread(target=self.get_info_from_kv_receiver, args=(port, kv_server_socket)).start()
+            bootstrap_info = {
+                "dp_rank": dp_rank,
+                "rank_ip": self.local_ip,
+                "rank_port": port,
+            }
+            bootstrap_infos.append(bootstrap_info)
+        
+        bootstrap_server_url = self.get_bootstrap_server_url()
+        url = f"http://{bootstrap_server_url}/route"
+        payload = {
+            "role": "Dp_controller",
+            "bootstrap_infos": bootstrap_infos
+        }
+        try:
+            response = requests.put(url, json=payload, timeout=5)
+            if response.status_code == 200:
+                logger.debug("Dp controller successfully registered to bootstrap server.")
+            else:
+                logger.error(
+                    f"Dp controller  failed to connect to bootstrap server: {response.status_code}, {response.text}"
+                )
+        except Exception as e:
+            logger.error(
+                f"Dp controller  failed to register to bootstrap server: {e}"
+            )
+        
+    def _get_socket_key_by_rank(self, target_dp_rank, target_tp_rank, target_pp_rank):
+        socket_key = f"{target_dp_rank}_{target_tp_rank}_{target_pp_rank}"
+        with self.global_forward_lock:
+            if socket_key not in self.kv_socket_pool:
+                bootstrap_info = self._get_info_from_bootstrap_server(target_tp_rank, target_dp_rank, target_pp_rank)
+                if bootstrap_info is not None:
+                    sock = self._create_socket_by_bootstrap_info(bootstrap_info)
+                    self.kv_socket_pool[socket_key] = sock
+                    self.kv_socket_lock_pool[socket_key] = threading.Lock()
+                else:
+                    logger.error("jskTest without bootstrap info when dp controller foward kv info")
+                    return None, None
+            return self.kv_socket_pool[socket_key], self.kv_socket_lock_pool[socket_key] 
+
+    def _create_socket_by_bootstrap_info(self, bootstrap_info: dict):
+        ip_address = bootstrap_info["rank_ip"]
+        port = bootstrap_info["rank_port"]
+        endpoint = format_tcp_address(ip_address, port)
+        sock = self.kv_context.socket(zmq.PUSH)
+        if is_valid_ipv6_address(ip_address):
+            sock.setsockopt(zmq.IPV6, 1)
+        sock.connect(endpoint)
+        return sock
+
+    def _get_info_from_bootstrap_server(self, target_tp_rank, target_dp_rank, target_pp_rank):
+        try:
+            url = f"http://{self.host}:{self.server_args.disaggregation_bootstrap_port}/route?engine_rank={target_tp_rank}&target_dp_group={target_dp_rank}&target_pp_rank={target_pp_rank}&role=dpController"
+            response = requests.get(url, timeout=5)
+            if response.status_code == 200:
+                bootstrap_info = response.json()
+                return bootstrap_info
+            else:
+                logger.error(
+                    f"Failed to get prefill server info: {response.status_code}, {response.text}"
+                )
+                return None
+        except Exception as e:
+            logger.error(f"Error fetching prefill info from bootstrap: {e}")
+            return None
+
+    def update_dp_worker_load(self, loadOutput: GetDPInternalLoadOutput):
+        with self.dp_load_lock:
+            self.dp_workers_loads[loadOutput.dp_rank] = loadOutput.num_tokens
+
+    def dp_minimum_tokens_scheduler(self, req: Req):
+        lowest_load_rank = None
+        if req.data_parallel_rank is not None:
+            logger.debug(f"Direct routing to DP rank {req.data_parallel_rank}")           
+            lowest_load_rank = req.data_parallel_rank
+        else:
+            lowest_load_rank, s1 = self.get_target_dp_by_bootstrap(req.bootstrap_room)
+
+        self.dp_budget.add_num_tokens(lowest_load_rank, len(req.input_ids))
+        self.workers[lowest_load_rank].send_pyobj(req)
+
+    def get_target_dp_by_bootstrap(self, bootstrap_room):
+        with self.dp_load_lock:
+            s1 = time.time()
+            room = int(bootstrap_room)
+            if bootstrap_room in self.bootstrap_room_to_worker:
+                return self.bootstrap_room_to_worker[room], s1
+            else:
+                lowest_load_rank = self.dp_budget.get_minimum_tokens_dp_rank()
+                if self.server_args.disaggregation_mode == "prefill":
+                    self.bootstrap_room_to_worker[room] = lowest_load_rank
+                    logger.debug(f"load balance req.bootstrap_room is {bootstrap_room},load to dp:{lowest_load_rank}")
+                return lowest_load_rank, s1
 
     def send_to_all_workers(self, obj):
         for worker in self.workers:
@@ -422,6 +618,7 @@ class DataParallelController:
                     + (tp_rank % tp_size_per_node) * server_args.gpu_id_step
                 )
                 moe_ep_rank = tp_rank // (server_args.tp_size // server_args.ep_size)
+                rank_port_args.dp_controller_ipc_name = port_args.dp_controller_ipc_name
                 with self.env_lock, maybe_reindex_device_id(gpu_id) as gpu_id:
                     proc = mp.Process(
                         target=run_scheduler_process,
@@ -496,6 +693,9 @@ class DataParallelController:
                 try:
                     recv_req = self.recv_from_tokenizer.recv_pyobj(zmq.NOBLOCK)
                 except zmq.ZMQError:
+                    break
+                if isinstance(recv_req, GetDPInternalLoadOutput):
+                    self.update_dp_worker_load(recv_req)
                     break
                 self._request_dispatcher(recv_req)
 

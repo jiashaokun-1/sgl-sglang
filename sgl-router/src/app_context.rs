@@ -457,7 +457,7 @@ impl AppContextBuilder {
                 .expect("policy_registry must be set")
                 .clone(),
             client.clone(),
-            config.worker_startup_check_interval_secs,
+            1,
         )));
         self
     }

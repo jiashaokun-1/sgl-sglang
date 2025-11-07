@@ -80,11 +80,11 @@ pub trait LoadBalancingPolicy: Send + Sync + Debug {
         // Default: no-op for policies that don't use load information
     }
 
-    fn get_lowest_dp_load(&self, worker: &dyn Worker) -> Option<isize> {
+    fn get_lowest_dp_load(&self, _worker: &dyn Worker) -> Option<isize> {
         None
     }
 
-    fn load_increment(&self, worker: &dyn Worker, dp_rank: isize, tokens: isize) {
+    fn load_increment(&self, _worker: &dyn Worker, _dp_rank: isize, _tokens: isize) {
         // Default
     }
 

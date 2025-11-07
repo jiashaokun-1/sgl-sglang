@@ -302,7 +302,7 @@ pub struct WorkerLoadInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worker_type: Option<String>,
     /// Current dp load (-1 indicates failure to fetch)
-    pub load;
+    pub load: isize,
     /// Current dp rand load
     pub dp_rank_loads: HashMap<isize, isize>,
 }

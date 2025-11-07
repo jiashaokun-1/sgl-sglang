@@ -158,7 +158,7 @@ impl WorkerManager {
                                     rank_tokens.insert(rank, tokens);
                                 }
                             }
-                            some(rank_tokens)
+                            Some(rank_tokens)
                         } else {
                             warn!(
                                 "Invalid load response from {}: expected array, got {:?}",
@@ -410,22 +410,22 @@ impl LoadMonitor {
 
         loop {
             interval_timer.tick().await;
-
             let power_of_two_policies = policy_registry.get_all_power_of_two_policies();
             let round_robin_policies = policy_registry.get_all_round_robin_policies();
 
-            if power_of_two_policies.is_empty() {
+            if power_of_two_policies.is_empty() && round_robin_policies.is_empty() {
                 debug!("No PowerOfTwo policies found, skipping load fetch");
                 continue;
             }
-
+            
+            debug!("jskTest monitor_loop");
             let result = WorkerManager::get_all_worker_loads(&worker_registry, &client).await;
 
             let mut loads = HashMap::new();
             let mut dp_rank_loads = HashMap::new();
             for load_info in result.loads {
-                loads.insert(load_info.worker, load_info.load);
-                dp_rank_loads.insert(load_info.worker, load_info.dp_rank_loads)
+                loads.insert(load_info.worker.clone(), load_info.load);
+                dp_rank_loads.insert(load_info.worker, load_info.dp_rank_loads);
             }
 
             if !loads.is_empty() {

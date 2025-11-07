@@ -532,7 +532,7 @@ async def set_internal_state(obj: SetInternalStateReq, request: Request):
 async def generate_request(obj: GenerateReqInput, request: Request):
     """Handle a generate request."""
     if obj.stream:
-
+        logger.info(f"jskTest http generate stream dp_rank:{obj.data_parallel_rank}")
         async def stream_results() -> AsyncIterator[bytes]:
             try:
                 async for out in _global_state.tokenizer_manager.generate_request(
@@ -555,6 +555,7 @@ async def generate_request(obj: GenerateReqInput, request: Request):
             background=_global_state.tokenizer_manager.create_abort_task(obj),
         )
     else:
+        logger.info(f"jskTest http generate no stream dp_rank:{obj.data_parallel_rank}")
         try:
             ret = await _global_state.tokenizer_manager.generate_request(
                 obj, request

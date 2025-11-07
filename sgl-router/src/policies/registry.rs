@@ -301,6 +301,22 @@ impl PolicyRegistry {
         power_of_two_policies
     }
 
+    pub fn get_all_round_robin_policies(&self) -> Vec<Arc<dyn LoadBalancingPolicy>> {
+        let mut round_robin_policies = Vec::new();
+
+        if self.default_policy.name() == "round_robin" {
+            round_robin_policies.push(Arc::clone(&self.default_policy));
+        }
+
+        if let Some(ref policy) = *self.prefill_policy.read().unwrap() {
+            if policy.name() == "round_robin" && !Arc::ptr_eq(policy, &self.default_policy) {
+                round_robin_policies.push(Arc::clone(policy));
+            }
+        }
+
+        round_robin_policies
+    }
+
     /// Initialize cache-aware policy with workers if applicable
     /// This should be called after workers are registered for a model
     pub fn init_cache_aware_policy(&self, model_id: &str, workers: &[Arc<dyn Worker>]) {

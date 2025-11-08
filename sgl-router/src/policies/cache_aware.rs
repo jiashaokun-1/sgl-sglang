@@ -78,6 +78,7 @@ pub struct CacheAwarePolicy {
     config: CacheAwareConfig,
     trees: Arc<DashMap<String, Arc<Tree>>>,
     eviction_handle: Option<thread::JoinHandle<()>>,
+    dp_load_manager: DPLoadManager,
 }
 
 impl CacheAwarePolicy {
@@ -116,6 +117,7 @@ impl CacheAwarePolicy {
             config,
             trees,
             eviction_handle,
+            dp_load_manager: DPLoadManager::new(),
         }
     }
 

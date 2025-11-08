@@ -723,6 +723,8 @@ pub async fn startup(config: ServerConfig) -> Result<(), Box<dyn std::error::Err
         config.max_payload_size / (1024 * 1024)
     );
 
+    info!("jskTest Starting router dp minimum tokens:{}", config.router_config.dp_minimum_tokens_scheduler);
+
     let app_context = Arc::new(
         AppContext::from_config(config.router_config.clone(), config.request_timeout_secs).await?,
     );

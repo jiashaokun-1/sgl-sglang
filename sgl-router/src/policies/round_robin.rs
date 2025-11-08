@@ -17,14 +17,14 @@ use crate::{core::Worker, metrics::RouterMetrics};
 #[derive(Debug, Default)]
 pub struct RoundRobinPolicy {
     counter: AtomicUsize,
-    dp_cached_loads: RwLock<HashMap<String, HashMap<isize, isize>>>,
+    dp_load_manager: DPLoadManager,
 }
 
 impl RoundRobinPolicy {
     pub fn new() -> Self {
         Self {
             counter: AtomicUsize::new(0),
-            dp_cached_loads: RwLock::new(HashMap::new()),
+            dp_load_manager: DPLoadManager::new(),
         }
     }
 }
@@ -61,35 +61,6 @@ impl LoadBalancingPolicy for RoundRobinPolicy {
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
-    }
-
-    fn update_dp_loads(&self, loads: &HashMap<String, HashMap<isize, isize>>) {
-        debug!("jskTest RoundRobinPolicy update_dp_loads map:{:?}", loads);
-        if let Ok(mut cached) = self.dp_cached_loads.write() {
-            *cached = loads.clone();
-        }
-    }
-    
-
-    fn get_lowest_dp_load(&self, worker: &dyn Worker) -> Option<isize> {
-        if let Ok(cached_loads) = self.dp_cached_loads.read() {
-            if let Some(loads) = cached_loads.get(worker.url()) {
-                return loads.iter()
-                    .min_by_key(|&(_, load)| load)
-                    .map(|(&rand_id, _)| rand_id);
-            }
-        }
-        None
-    }
-
-    fn load_increment(&self, worker: &dyn Worker, dp_rank: isize, tokens: isize) {
-        if let Ok(mut cached_loads) = self.dp_cached_loads.write() {
-            if let Some(loads) = cached_loads.get_mut(worker.url()) {
-                if let Some(dp_load) = loads.get_mut(&dp_rank) {
-                    *dp_load += tokens;
-                }
-            }
-        }
     }
 }
 

@@ -154,6 +154,7 @@ struct Router {
     max_tree_size: usize,
     max_payload_size: usize,
     dp_aware: bool,
+    dp_minimum_tokens_scheduler: bool
     api_key: Option<String>,
     log_dir: Option<String>,
     log_level: Option<String>,
@@ -371,6 +372,7 @@ impl Router {
                 self.client_key_path.as_ref(),
             )
             .add_ca_certificates(self.ca_cert_paths.clone())
+            .dp_minimum_tokens_scheduler(self.dp_minimum_tokens_scheduler)
             .build()
     }
 }
@@ -392,6 +394,7 @@ impl Router {
         max_tree_size = 2usize.pow(26),
         max_payload_size = 512 * 1024 * 1024,
         dp_aware = false,
+        dp_minimum_tokens_scheduler = false,
         api_key = None,
         log_dir = None,
         log_level = None,
@@ -465,6 +468,7 @@ impl Router {
         max_tree_size: usize,
         max_payload_size: usize,
         dp_aware: bool,
+        dp_minimum_tokens_scheduler: bool,
         api_key: Option<String>,
         log_dir: Option<String>,
         log_level: Option<String>,
@@ -551,6 +555,7 @@ impl Router {
             max_tree_size,
             max_payload_size,
             dp_aware,
+            dp_minimum_tokens_scheduler,
             api_key,
             log_dir,
             log_level,

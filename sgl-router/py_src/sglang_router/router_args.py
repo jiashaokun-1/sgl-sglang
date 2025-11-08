@@ -35,6 +35,7 @@ class RouterArgs:
     max_tree_size: int = 2**26
     max_payload_size: int = 512 * 1024 * 1024  # 512MB default for large batches
     dp_aware: bool = False
+    dp_minimum_tokens_scheduler: bool = False
     enable_igw: bool = False  # Enable IGW (Inter-Gateway) mode for multi-model support
     api_key: Optional[str] = None
     log_dir: Optional[str] = None
@@ -256,6 +257,11 @@ class RouterArgs:
             f"--{prefix}dp-aware",
             action="store_true",
             help="Enable data parallelism aware schedule",
+        )
+        parser.add_argument(
+            f"--{prefix}dp-minimum-tokens-scheduler",
+            action="store_true",
+            help="Enable minimum tokens scheduler for data parallel group",
         )
         parser.add_argument(
             f"--{prefix}enable-igw",

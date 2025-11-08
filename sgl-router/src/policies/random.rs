@@ -11,10 +11,13 @@ use crate::{core::Worker, metrics::RouterMetrics};
 ///
 /// Selects workers randomly with uniform distribution among healthy workers.
 #[derive(Debug, Default)]
-pub struct RandomPolicy;
+pub struct RandomPolicy {
+    dp_load_manager: DPLoadManager,
+}
 
 impl RandomPolicy {
     pub fn new() -> Self {
+        dp_load_manager: DPLoadManager::new(),
         Self
     }
 }

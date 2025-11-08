@@ -19,12 +19,14 @@ use crate::{core::Worker, metrics::RouterMetrics};
 pub struct PowerOfTwoPolicy {
     /// Cached load information from external monitoring
     cached_loads: RwLock<HashMap<String, isize>>,
+    dp_load_manager: DPLoadManager,
 }
 
 impl PowerOfTwoPolicy {
     pub fn new() -> Self {
         Self {
             cached_loads: RwLock::new(HashMap::new()),
+            dp_load_manager: DPLoadManager::new(),
         }
     }
 

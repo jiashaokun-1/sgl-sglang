@@ -291,13 +291,17 @@ impl PDRouter {
                             Ok(v) => v,
                             Err(e) => return Self::handle_serialization_error(e),
                         };
-                        // data_parallel_rank
-                        json_request = match self.select_data_parallel_rank(json_request, prefill.as_ref(), context.request_text.as_deref())
-                            .await
-                        {
-                            Ok(v) => v,
-                            Err(e) => return Self::handle_serialization_error(e),
-                        };
+
+                        if self.policy_registry.dp_minimum_tokens_scheduler {
+                            // data_parallel_rank
+                            debug!("jskTest do select_data_parallel_rank");
+                            json_request = match self.select_data_parallel_rank(json_request, prefill.as_ref(), context.request_text.as_deref())
+                                .await
+                            {
+                                Ok(v) => v,
+                                Err(e) => return Self::handle_serialization_error(e),
+                            };
+                        }
                         let response = self
                             .execute_dual_dispatch_internal(
                                 headers,
@@ -564,20 +568,18 @@ impl PDRouter {
             None => 0,
         };
         let prefill_policy = self.policy_registry.get_prefill_policy();
-        if prefill_policy.name() == "round_robin" {
-            let lowest_dp_rank = prefill_policy.get_lowest_dp_load(worker);
-            obj.insert(
-                "data_parallel_rank".to_string(),
-                match lowest_dp_rank {
-                    Some(v) => Value::from(v),
-                    None => Value::Null,
-                },
-            );
-            let token_len = length.try_into().map_err(|e| format!("Failed to convert length tp isize:{}", e))?;        
-            debug!("jskTest select_data_parallel_rank obj:{:?}, token_len:{}", obj, token_len);
-            if let Some(dp_rank) = lowest_dp_rank {
-                prefill_policy.load_increment(worker, dp_rank, token_len);
-            }
+        let lowest_dp_rank = prefill_policy.dp_load_manager.get_lowest_dp_load(worker);
+        obj.insert(
+            "data_parallel_rank".to_string(),
+            match lowest_dp_rank {
+                Some(v) => Value::from(v),
+                None => Value::Null,
+            },
+        );
+        let token_len = length.try_into().map_err(|e| format!("Failed to convert length tp isize:{}", e))?;        
+        debug!("jskTest select_data_parallel_rank obj:{:?}, token_len:{}", obj, token_len);
+        if let Some(dp_rank) = lowest_dp_rank {
+            prefill_policy.dp_load_manager.load_increment(worker, dp_rank, token_len);
         }
 
         Ok(original)

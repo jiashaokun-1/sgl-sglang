@@ -76,18 +76,6 @@ pub trait LoadBalancingPolicy: Send + Sync + Debug {
         // Default: no-op for policies that don't use load information
     }
 
-    fn update_dp_loads(&self, _loads: &HashMap<String, HashMap<isize, isize>>) {
-        // Default: no-op for policies that don't use load information
-    }
-
-    fn get_lowest_dp_load(&self, _worker: &dyn Worker) -> Option<isize> {
-        None
-    }
-
-    fn load_increment(&self, _worker: &dyn Worker, _dp_rank: isize, _tokens: isize) {
-        // Default
-    }
-
     /// Reset any internal state
     ///
     /// This is useful for policies that maintain state (e.g., round-robin counters).
@@ -117,6 +105,48 @@ impl Default for CacheAwareConfig {
             balance_rel_threshold: 1.1,
             eviction_interval_secs: 30,
             max_tree_size: 10000,
+        }
+    }
+}
+
+/// Configuration for cache-aware policy
+#[derive(Debug, Clone)]
+pub struct DPLoadManager {
+    dp_cached_loads: RwLock<HashMap<String, HashMap<isize, isize>>>,
+}
+
+impl DPLoadManager {
+    pub fn new() -> self {
+        Self {
+            dp_cached_loads: RwLock::new(HashMap::new()),
+        }
+    }
+
+    pub fn update_dp_loads(&self, loads: &HashMap<String, HashMap<isize, isize>>) {
+        debug!("jskTest RoundRobinPolicy update_dp_loads map:{:?}", loads);
+        if let Ok(mut cached) = self.dp_cached_loads.write() {
+            *cached = loads.clone();
+        }
+    }
+
+    pub fn get_lowest_dp_load(&self, worker: &dyn Worker) -> Option<isize> {
+        if let Ok(cached_loads) = self.dp_cached_loads.read() {
+            if let Some(loads) = cached_loads.get(worker.url()) {
+                return loads.iter()
+                    .min_by_key(|&(_, load)| load)
+                    .map(|(&rand_id, _)| rand_id);
+            }
+        }
+        None
+    }
+
+    pub fn load_increment(&self, worker: &dyn Worker, dp_rank: isize, tokens: isize) {
+        if let Ok(mut cached_loads) = self.dp_cached_loads.write() {
+            if let Some(loads) = cached_loads.get_mut(worker.url()) {
+                if let Some(dp_load) = loads.get_mut(&dp_rank) {
+                    *dp_load += tokens;
+                }
+            }
         }
     }
 }

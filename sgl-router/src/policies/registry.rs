@@ -1,6 +1,10 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, RwLock},
+    sync::{
+        Arc, 
+        RwLock,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use tracing::{debug, info, warn};
@@ -36,7 +40,7 @@ pub struct PolicyRegistry {
     decode_policy: Arc<RwLock<Option<Arc<dyn LoadBalancingPolicy>>>>,
 
     /// Enable minimum tokens scheduler for dp group
-    dp_minimum_tokens_scheduler: bool,
+    dp_minimum_tokens_scheduler: Arc<AtomicBool>,
 }
 
 impl PolicyRegistry {
@@ -50,13 +54,17 @@ impl PolicyRegistry {
             default_policy,
             prefill_policy: Arc::new(RwLock::new(None)),
             decode_policy: Arc::new(RwLock::new(None)),
-            dp_minimum_tokens_scheduler: false,
+            dp_minimum_tokens_scheduler: Arc::new(AtomicBool::new(false)),
         }
     }
 
-    pub fn enable_dp_minimum_tokens_scheduler(&mut self) {
-        debug!("jskTest enable_dp_minimum_tokens_scheduler")
-        self.dp_minimum_tokens_scheduler = true;
+    pub fn enable_dp_minimum_tokens_scheduler(&self) {
+        debug!("jskTest enable_dp_minimum_tokens_scheduler");
+        self.dp_minimum_tokens_scheduler.store(true, Ordering::Relaxed);
+    }
+
+    pub fn is_dp_minimum_tokens_scheduler_enabled(&self) -> bool {
+        self.dp_minimum_tokens_scheduler.load(Ordering::Relaxed)
     }
 
     /// Called when a worker is added

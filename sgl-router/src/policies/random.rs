@@ -1,10 +1,13 @@
 //! Random load balancing policy
 
-use std::sync::Arc;
+use std::{
+    sync::Arc, 
+    collections::HashMap,
+};
 
 use rand::Rng;
 
-use super::{get_healthy_worker_indices, LoadBalancingPolicy};
+use super::{get_healthy_worker_indices, LoadBalancingPolicy, DPLoadManager};
 use crate::{core::Worker, metrics::RouterMetrics};
 
 /// Random selection policy
@@ -17,8 +20,9 @@ pub struct RandomPolicy {
 
 impl RandomPolicy {
     pub fn new() -> Self {
-        dp_load_manager: DPLoadManager::new(),
-        Self
+        Self {
+            dp_load_manager: DPLoadManager::new(),
+        }
     }
 }
 
@@ -49,6 +53,18 @@ impl LoadBalancingPolicy for RandomPolicy {
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+
+    fn update_dp_loads(&self, loads: &HashMap<String, HashMap<isize, isize>>) {
+        return self.dp_load_manager.update_dp_loads(loads);
+    }
+    
+    fn get_lowest_dp_load(&self, worker: &dyn Worker) -> Option<isize> {
+        return self.dp_load_manager.get_lowest_dp_load(worker);
+    }
+
+    fn load_increment(&self, worker: &dyn Worker, dp_rank: isize, tokens: isize) {
+        return self.dp_load_manager.load_increment(worker, dp_rank, tokens);
     }
 }
 

@@ -292,10 +292,10 @@ impl PDRouter {
                             Err(e) => return Self::handle_serialization_error(e),
                         };
 
-                        if self.policy_registry.dp_minimum_tokens_scheduler {
+                        if self.policy_registry.is_dp_minimum_tokens_scheduler_enabled() {
                             // data_parallel_rank
                             debug!("jskTest do select_data_parallel_rank");
-                            json_request = match self.select_data_parallel_rank(json_request, prefill.as_ref(), context.request_text.as_deref())
+                            json_request = match self.select_data_parallel_rank(json_request, prefill.as_ref(), decode.as_ref(), context.request_text.as_deref())
                                 .await
                             {
                                 Ok(v) => v,
@@ -558,7 +558,7 @@ impl PDRouter {
         prefill_policy.needs_request_text() || decode_policy.needs_request_text()
     }
 
-    async fn select_data_parallel_rank(&self, mut original: Value, worker: &dyn Worker, request_text: Option<&str>) -> Result<Value, String> {
+    async fn select_data_parallel_rank(&self, mut original: Value, prefill_worker: &dyn Worker, decode_worker: &dyn Worker, request_text: Option<&str>) -> Result<Value, String> {
         let obj = original
             .as_object_mut()
             .ok_or_else(|| "Request must be a JSON object".to_string())?;
@@ -568,18 +568,30 @@ impl PDRouter {
             None => 0,
         };
         let prefill_policy = self.policy_registry.get_prefill_policy();
-        let lowest_dp_rank = prefill_policy.dp_load_manager.get_lowest_dp_load(worker);
+        let lowest_prefill_dp_rank = prefill_policy.get_lowest_dp_load(prefill_worker);
+        let decode_policy = self.policy_registry.get_decode_policy();
+        let lowest_decode_dp_rank = decode_policy.get_lowest_dp_load(decode_worker);
         obj.insert(
             "data_parallel_rank".to_string(),
-            match lowest_dp_rank {
+            match lowest_prefill_dp_rank {
+                Some(v) => Value::from(v),
+                None => Value::Null,
+            },
+        );
+        obj.insert(
+            "decode_dp_rank".to_string(),
+            match lowest_decode_dp_rank {
                 Some(v) => Value::from(v),
                 None => Value::Null,
             },
         );
         let token_len = length.try_into().map_err(|e| format!("Failed to convert length tp isize:{}", e))?;        
         debug!("jskTest select_data_parallel_rank obj:{:?}, token_len:{}", obj, token_len);
-        if let Some(dp_rank) = lowest_dp_rank {
-            prefill_policy.dp_load_manager.load_increment(worker, dp_rank, token_len);
+        if let Some(dp_rank) = lowest_prefill_dp_rank {
+            prefill_policy.load_increment(prefill_worker, dp_rank, token_len);
+        }
+        if let Some(dp_rank) = lowest_decode_dp_rank {
+            decode_policy.load_increment(decode_worker, dp_rank, token_len);
         }
 
         Ok(original)

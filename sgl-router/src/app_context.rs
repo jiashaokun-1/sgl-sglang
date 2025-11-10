@@ -427,7 +427,11 @@ impl AppContextBuilder {
     fn with_policy_registry(mut self, config: &RouterConfig) -> Self {
         self.policy_registry = Some(Arc::new(PolicyRegistry::new(config.policy.clone())));
         if config.dp_minimum_tokens_scheduler {
-            self.policy_registry.enable_dp_minimum_tokens_scheduler();
+            if let Some(policy_registry) = &self.policy_registry {
+                policy_registry.enable_dp_minimum_tokens_scheduler();
+            } else {
+                info!("policy_registry is None")
+            }
         }
         self
     }

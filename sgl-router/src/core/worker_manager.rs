@@ -412,7 +412,7 @@ impl LoadMonitor {
             interval_timer.tick().await;
             let power_of_two_policies = policy_registry.get_all_power_of_two_policies();
 
-            if power_of_two_policies.is_empty() && !policy_registry.dp_minimum_tokens_scheduler {
+            if power_of_two_policies.is_empty() && !policy_registry.is_dp_minimum_tokens_scheduler_enabled() {
                 debug!("No PowerOfTwo policies found, skipping load fetch");
                 continue;
             }
@@ -438,7 +438,7 @@ impl LoadMonitor {
                     policy.update_loads(&loads);
                 }
                 for policy in &all_policies {
-                    policy.dp_load_manager.update_dp_loads(&dp_rank_loads)
+                    policy.update_dp_loads(&dp_rank_loads)
                 }
                 let _ = tx.send(loads);
             } else {

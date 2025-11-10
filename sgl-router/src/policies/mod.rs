@@ -3,8 +3,9 @@
 //! This module provides a unified abstraction for routing policies that work
 //! across both regular and prefill-decode (PD) routing modes.
 
-use std::{fmt::Debug, sync::Arc};
+use std::{fmt::Debug, sync::Arc, sync::RwLock};
 use std::collections::{HashMap};
+use tracing::{debug};
 
 use crate::core::Worker;
 
@@ -76,6 +77,18 @@ pub trait LoadBalancingPolicy: Send + Sync + Debug {
         // Default: no-op for policies that don't use load information
     }
 
+    fn update_dp_loads(&self, _loads: &HashMap<String, HashMap<isize, isize>>) {
+        // Default: no-op for policies that don't use load information
+    }
+
+    fn get_lowest_dp_load(&self, _worker: &dyn Worker) -> Option<isize> {
+        None
+    }
+
+    fn load_increment(&self, _worker: &dyn Worker, _dp_rank: isize, _tokens: isize) {
+        // Default
+    }
+
     /// Reset any internal state
     ///
     /// This is useful for policies that maintain state (e.g., round-robin counters).
@@ -110,13 +123,13 @@ impl Default for CacheAwareConfig {
 }
 
 /// Configuration for cache-aware policy
-#[derive(Debug, Clone)]
+#[derive(Debug, Default)]
 pub struct DPLoadManager {
     dp_cached_loads: RwLock<HashMap<String, HashMap<isize, isize>>>,
 }
 
 impl DPLoadManager {
-    pub fn new() -> self {
+    pub fn new() -> Self {
         Self {
             dp_cached_loads: RwLock::new(HashMap::new()),
         }

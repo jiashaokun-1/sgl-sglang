@@ -154,7 +154,7 @@ struct Router {
     max_tree_size: usize,
     max_payload_size: usize,
     dp_aware: bool,
-    dp_minimum_tokens_scheduler: bool
+    dp_minimum_tokens_scheduler: bool,
     api_key: Option<String>,
     log_dir: Option<String>,
     log_level: Option<String>,

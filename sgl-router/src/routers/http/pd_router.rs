@@ -12,7 +12,7 @@ use reqwest::Client;
 use serde::Serialize;
 use serde_json::{json, Value};
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use tracing::{debug, error, warn, info};
+use tracing::{debug, error, warn};
 
 use super::pd_types::api_path;
 use crate::{

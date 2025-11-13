@@ -28,6 +28,7 @@ class RouterArgs:
     decode_policy: Optional[str] = None  # Specific policy for decode nodes in PD mode
     worker_startup_timeout_secs: int = 600
     worker_startup_check_interval: int = 30
+    worker_load_check_interval: int = 1
     cache_threshold: float = 0.3
     balance_abs_threshold: int = 64
     balance_rel_threshold: float = 1.5
@@ -215,6 +216,12 @@ class RouterArgs:
             f"--{prefix}worker-startup-check-interval",
             type=int,
             default=RouterArgs.worker_startup_check_interval,
+            help="Interval in seconds between checks for worker startup",
+        )
+        parser.add_argument(
+            f"--{prefix}worker-load-check-interval",
+            type=int,
+            default=RouterArgs.worker_load_check_interval,
             help="Interval in seconds between checks for worker startup",
         )
         parser.add_argument(

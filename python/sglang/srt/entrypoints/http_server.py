@@ -1102,6 +1102,7 @@ async def openai_v1_chat_completions(
     request: ChatCompletionRequest, raw_request: Request
 ):
     """OpenAI-compatible chat completion endpoint."""
+    logger.info(f"jskTest openai_v1_chat_completions request:{request}")
     return await raw_request.app.state.openai_serving_chat.handle_request(
         request, raw_request
     )

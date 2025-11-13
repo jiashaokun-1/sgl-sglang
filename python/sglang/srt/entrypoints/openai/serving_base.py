@@ -100,6 +100,7 @@ class OpenAIServingBase(ABC):
             adapted_request, processed_request = self._convert_to_internal_request(
                 request, raw_request
             )
+            logger.info(f"jskTest adapted_request:{adapted_request}")
             if hasattr(adapted_request, "validation_time"):
                 adapted_request.validation_time = validation_time
 

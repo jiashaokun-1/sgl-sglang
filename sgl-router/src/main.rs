@@ -133,6 +133,9 @@ struct CliArgs {
     #[arg(long, default_value_t = 30)]
     worker_startup_check_interval: u64,
 
+    #[arg(long, default_value_t = 1)]
+    worker_load_check_interval: u64,
+
     #[arg(long, default_value_t = 0.3)]
     cache_threshold: f32,
 
@@ -153,6 +156,9 @@ struct CliArgs {
 
     #[arg(long, default_value_t = false)]
     dp_aware: bool,
+
+    #[arg(long, default_value_t = false)]
+    dp_minimum_tokens_scheduler: bool,
 
     #[arg(long)]
     api_key: Option<String>,
@@ -551,6 +557,7 @@ impl CliArgs {
             .request_timeout_secs(self.request_timeout_secs)
             .worker_startup_timeout_secs(self.worker_startup_timeout_secs)
             .worker_startup_check_interval_secs(self.worker_startup_check_interval)
+            .worker_load_check_interval_secs(self.worker_load_check_interval)
             .max_concurrent_requests(self.max_concurrent_requests)
             .queue_size(self.queue_size)
             .queue_timeout_secs(self.queue_timeout_secs)

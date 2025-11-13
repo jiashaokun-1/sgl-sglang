@@ -6,7 +6,6 @@ use std::sync::{
 };
 use std::collections::{HashMap};
 
-use tracing::{debug, error, info, warn};
 use super::{get_healthy_worker_indices, LoadBalancingPolicy, DPLoadManager};
 use crate::{core::Worker, metrics::RouterMetrics};
 

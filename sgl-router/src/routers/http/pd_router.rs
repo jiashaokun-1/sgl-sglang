@@ -399,21 +399,22 @@ impl PDRouter {
         } else {
             None
         };
-
+        let prefill_request_body = prefill.prepare_request(json_request).await.unwrap();
         // Build both requests
         let prefill_request = self.build_post_with_headers(
             &self.client,
-            prefill.url(),
+            prefill.base_url(),
             context.route,
-            &json_request,
+            &prefill_request_body,
             headers,
             false,
         );
+        let docede_request_body = decode.prepare_request(prefill_request_body).await.unwrap();
         let decode_request = self.build_post_with_headers(
             &self.client,
-            decode.url(),
+            decode.base_url(),
             context.route,
-            &json_request,
+            &docede_request_body,
             headers,
             false,
         );

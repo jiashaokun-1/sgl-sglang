@@ -116,15 +116,16 @@ impl BasicWorkerBuilder {
 
         use tokio::sync::RwLock;
 
-        let bootstrap_host = match url::Url::parse(&self.url) {
+        let base_url = self.url.split('@').next().unwrap_or(&self.url);
+        let bootstrap_host = match url::Url::parse(base_url) {
             Ok(parsed) => parsed.host_str().unwrap_or("localhost").to_string(),
             Err(_) if !self.url.contains("://") => {
-                match url::Url::parse(&format!("http://{}", self.url)) {
+                match url::Url::parse(&format!("http://{}", base_url)) {
                     Ok(parsed) => parsed.host_str().unwrap_or("localhost").to_string(),
                     Err(_) => {
                         tracing::warn!(
                             "Failed to parse URL '{}', defaulting to localhost",
-                            self.url
+                            base_url
                         );
                         "localhost".to_string()
                     }
@@ -133,7 +134,7 @@ impl BasicWorkerBuilder {
             Err(_) => {
                 tracing::warn!(
                     "Failed to parse URL '{}', defaulting to localhost",
-                    self.url
+                    base_url
                 );
                 "localhost".to_string()
             }

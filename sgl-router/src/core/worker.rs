@@ -782,6 +782,20 @@ impl Worker for DPAwareWorker {
         }
     }
 
+    async fn prepare_request_decode_rank(&self, mut req: serde_json::Value) -> WorkerResult<serde_json::Value> {
+        if let Some(map) = req.as_object_mut() {
+            map.insert(
+                "decode_dp_rank".to_string(),
+                serde_json::json!(self.dp_rank),
+            );
+            Ok(req)
+        } else {
+            Err(WorkerError::InvalidConfiguration {
+                message: "Request must be a JSON object for DP-aware routing".to_string(),
+            })
+        }
+    }
+
     fn endpoint_url(&self, route: &str) -> String {
         format!("{}{}", self.base_url, route)
     }

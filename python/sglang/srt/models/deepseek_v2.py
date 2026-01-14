@@ -1418,6 +1418,8 @@ class DeepseekV2AttentionMLA(nn.Module):
                 ), "short-circuiting allreduce will lead to hangs"
                 return hidden_states, None, forward_batch, None
 
+        print(f"")
+        traceback.print_stack()
         attn_forward_method = self.dispatch_attn_forward_method(forward_batch)
         if attn_forward_method == AttnForwardMethod.MHA:
             inner_state = self.forward_normal_prepare(
@@ -3177,8 +3179,6 @@ class DeepseekV2ForCausalLM(nn.Module):
 
         q_lora_rank = config.q_lora_rank if hasattr(config, "q_lora_rank") else None
         get_attn_tp_context().init_context(q_lora_rank, is_deepseek_nsa(config))
-        logger.info("jskTest  DeepseekV2ForCausalLM _init_")
-        traceback.print_stack()
 
     @property
     def routed_experts_weights_of_layer(self):

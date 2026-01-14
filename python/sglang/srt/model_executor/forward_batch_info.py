@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 import torch
 import triton
 import triton.language as tl
+import traceback
 
 from sglang.srt.distributed.parallel_state import (
     get_moe_expert_parallel_world_size,
@@ -944,6 +945,8 @@ class ForwardBatch:
 
         attn_tp_context = get_attn_tp_context()
         input_scattered = attn_tp_context.use_input_scattered(self)
+        print(f"jskTest prepare_attn_tp_scatter_input input_scattered:{input_scattered}")
+        traceback.print_stack()
         if not input_scattered:
             return
         assert self.forward_mode.is_extend()

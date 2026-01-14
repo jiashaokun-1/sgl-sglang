@@ -20,6 +20,7 @@ from __future__ import annotations
 import concurrent.futures
 import logging
 import os
+import traceback
 from contextlib import nullcontext
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
@@ -3176,6 +3177,8 @@ class DeepseekV2ForCausalLM(nn.Module):
 
         q_lora_rank = config.q_lora_rank if hasattr(config, "q_lora_rank") else None
         get_attn_tp_context().init_context(q_lora_rank, is_deepseek_nsa(config))
+        logger.info("jskTest  DeepseekV2ForCausalLM _init_")
+        traceback.print_stack()
 
     @property
     def routed_experts_weights_of_layer(self):

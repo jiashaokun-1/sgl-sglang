@@ -1419,6 +1419,7 @@ class DeepseekV2AttentionMLA(nn.Module):
                 return hidden_states, None, forward_batch, None
 
         attn_forward_method = self.dispatch_attn_forward_method(forward_batch)
+        print(f"jskTest attentionMLA attn_forward_method is {attn_forward_method}")
         if attn_forward_method == AttnForwardMethod.MHA:
             inner_state = self.forward_normal_prepare(
                 positions, hidden_states, forward_batch, zero_allocator

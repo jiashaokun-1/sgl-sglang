@@ -130,6 +130,7 @@ def forward_mla_prepare_npu(
     forward_batch: "ForwardBatch",
     zero_allocator: "BumpAllocator",
 ):
+    print(f"jskTest is_mla_preprocess_enabled is {is_mla_preprocess_enabled()}")
     if is_mla_preprocess_enabled():
         if not hasattr(m, "mla_preprocess"):
             m.mla_preprocess = NPUFusedMLAPreprocess(

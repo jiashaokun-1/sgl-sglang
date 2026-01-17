@@ -2276,6 +2276,7 @@ class ModelRunner(ModelRunnerKVCacheMixin):
         else:
             forward_batch.prepare_attn_tp_scatter_input(self)
 
+        print(f"jskTest forward_batch.forward_mode is {forward_batch.forward_mode}")
         # Normalize num_token_non_padded to be local to this attention TP rank if needed.
         if (
             forward_batch.num_token_non_padded is not None

@@ -167,6 +167,7 @@ class AttnTpContext:
             and not get_global_server_args().enable_piecewise_cuda_graph
             and get_global_server_args().speculative_algorithm != "EAGLE3"
         )
+        self.allow_input_scattered = True
         if get_global_server_args().enable_attn_tp_input_scattered:
             if not self.allow_input_scattered:
                 logging.info(
@@ -176,14 +177,16 @@ class AttnTpContext:
                 logging.info("attn_tp_input_scattered is enabled")
 
     def use_input_scattered(self, forward_batch: ForwardBatch):
-        return (
-            self.allow_input_scattered
-            and forward_batch.forward_mode.is_extend()
-            and not forward_batch.forward_mode.is_target_verify()
-            and not forward_batch.forward_mode.is_draft_extend()
-            and forward_batch.input_ids is not None
-            and not forward_batch.can_run_tbo
-        )
+        print(f"jskTest forward_batch.forward_mode is {forward_batch.forward_mode}")
+        return True
+        # return (
+        #     self.allow_input_scattered
+        #     and forward_batch.forward_mode.is_extend()
+        #     and not forward_batch.forward_mode.is_target_verify()
+        #     and not forward_batch.forward_mode.is_draft_extend()
+        #     and forward_batch.input_ids is not None
+        #     and not forward_batch.can_run_tbo
+        # )
 
     @property
     def input_scattered(self):
@@ -396,6 +399,7 @@ class LayerCommunicator:
         quant_format: str = "",
         **kwargs,
     ):
+        print(f"jskTest LayerComm prepare_attn get_attn_tp_context().input_scattered is {get_attn_tp_context().input_scattered}")
         if get_attn_tp_context().input_scattered:
             hidden_states, residual = self._tp_reduce_scatter(
                 hidden_states,

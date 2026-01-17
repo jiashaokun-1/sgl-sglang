@@ -945,8 +945,6 @@ class ForwardBatch:
 
         attn_tp_context = get_attn_tp_context()
         input_scattered = attn_tp_context.use_input_scattered(self)
-        print(f"jskTest prepare_attn_tp_scatter_input input_scattered:{input_scattered}")
-        traceback.print_stack()
         if not input_scattered:
             return
         assert self.forward_mode.is_extend()

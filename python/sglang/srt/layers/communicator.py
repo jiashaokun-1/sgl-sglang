@@ -177,7 +177,7 @@ class AttnTpContext:
                 logging.info("attn_tp_input_scattered is enabled")
 
     def use_input_scattered(self, forward_batch: ForwardBatch):
-        print(f"jskTest forward_batch.forward_mode is {forward_batch.forward_mode}")
+        print(f"jskTest forward_batch.forward_mode is {forward_batch.forward_mode.name}")
         return True
         # return (
         #     self.allow_input_scattered

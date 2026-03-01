@@ -194,11 +194,6 @@ class GenerateReqInput(BaseReq):
     # Deprecated: use routed_dp_rank instead
     data_parallel_rank: Optional[int] = None
 
-    # In PD-Disaggregation mode, requests are scheduled to different DP group based on the load conditions of prefill and decode.
-    # `data_parallel_rank_decode` indicates which DP group the current request need to be dispatched to for decode
-    # `data_parallel_rank` indicates which DP group the request will be scheduled to on the prefill.
-    data_parallel_rank_decode: Optional[int] = None
-
     # For background responses (OpenAI responses API)
     background: bool = False
 
@@ -717,8 +712,6 @@ class TokenizedGenerateReqInput(BaseReq):
     routed_dp_rank: Optional[int] = None
     # For PD disagg — hint telling decode which prefill DP worker has the KV cache
     disagg_prefill_dp_rank: Optional[int] = None
-
-    data_parallel_rank_decode: Optional[int] = None
 
     # Priority for the request
     priority: Optional[int] = None

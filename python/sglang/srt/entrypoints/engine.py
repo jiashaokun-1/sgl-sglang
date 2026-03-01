@@ -267,7 +267,6 @@ class Engine(EngineBase):
         # Deprecated: use routed_dp_rank instead
         data_parallel_rank: Optional[int] = None,
         external_trace_header: Optional[Dict] = None,
-        data_parallel_rank_decode: Optional[int] = None,
         rid: Optional[Union[List[str], str]] = None,
         session_params: Optional[Dict] = None,
         priority: Optional[int] = None,
@@ -302,7 +301,6 @@ class Engine(EngineBase):
             routed_dp_rank=routed_dp_rank,
             disagg_prefill_dp_rank=disagg_prefill_dp_rank,
             external_trace_header=external_trace_header,
-            data_parallel_rank_decode=data_parallel_rank_decode,
             rid=rid,
             session_params=session_params,
             priority=priority,
@@ -359,7 +357,6 @@ class Engine(EngineBase):
         # Deprecated: use routed_dp_rank instead
         data_parallel_rank: Optional[int] = None,
         external_trace_header: Optional[Dict] = None,
-        data_parallel_rank_decode: Optional[int] = None,
         rid: Optional[Union[List[str], str]] = None,
         session_params: Optional[Dict] = None,
         priority: Optional[int] = None,
@@ -394,7 +391,6 @@ class Engine(EngineBase):
             routed_dp_rank=routed_dp_rank,
             disagg_prefill_dp_rank=disagg_prefill_dp_rank,
             external_trace_header=external_trace_header,
-            data_parallel_rank_decode=data_parallel_rank_decode,
             rid=rid,
             session_params=session_params,
             priority=priority,

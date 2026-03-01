@@ -1521,13 +1521,8 @@ class Scheduler(
                 bootstrap_port=recv_req.bootstrap_port,
                 bootstrap_room=recv_req.bootstrap_room,
                 disagg_mode=self.disaggregation_mode,
-<<<<<<< HEAD
                 routed_dp_rank=recv_req.routed_dp_rank,
                 disagg_prefill_dp_rank=recv_req.disagg_prefill_dp_rank,
-=======
-                data_parallel_rank=recv_req.data_parallel_rank,
-                data_parallel_rank_decode=recv_req.data_parallel_rank_decode,
->>>>>>> 4442cf761... router select dp group with the minimum number of tokens [grpc]
                 vocab_size=self.model_config.vocab_size,
                 priority=recv_req.priority,
                 metrics_collector=(

@@ -1,4 +1,7 @@
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, OnceLock, RwLock,
+};
 
 use dashmap::DashMap;
 use serde_json;
@@ -36,6 +39,8 @@ pub struct PolicyRegistry {
     /// When None, the registry works independently without mesh synchronization
     /// Uses RwLock for thread-safe access when setting mesh_sync after initialization
     mesh_sync: Arc<RwLock<OptionalMeshSyncManager>>,
+    /// Enable minimum tokens scheduler for dp group
+    dp_minimum_tokens_scheduler: Arc<AtomicBool>,
 }
 
 impl PolicyRegistry {
@@ -50,12 +55,22 @@ impl PolicyRegistry {
             prefill_policy: Arc::new(OnceLock::new()),
             decode_policy: Arc::new(OnceLock::new()),
             mesh_sync: Arc::new(RwLock::new(None)),
+            dp_minimum_tokens_scheduler: Arc::new(AtomicBool::new(false)),
         }
     }
 
     /// Set mesh sync manager (thread-safe, can be called after initialization)
     pub fn set_mesh_sync(&self, mesh_sync: OptionalMeshSyncManager) {
         *self.mesh_sync.write().unwrap() = mesh_sync;
+    }
+
+    pub fn enable_dp_minimum_tokens_scheduler(&self) {
+        self.dp_minimum_tokens_scheduler
+            .store(true, Ordering::Relaxed);
+    }
+
+    pub fn is_dp_minimum_tokens_scheduler_enabled(&self) -> bool {
+        self.dp_minimum_tokens_scheduler.load(Ordering::Relaxed)
     }
 
     /// Called when a worker is added

@@ -31,6 +31,7 @@ class EngineBase(ABC):
         routed_dp_rank: Optional[int] = None,
         disagg_prefill_dp_rank: Optional[int] = None,
         data_parallel_rank: Optional[int] = None,
+        data_parallel_rank_decode: Optional[int] = None,
         rid: Optional[Union[List[str], str]] = None,
         priority: Optional[int] = None,
     ) -> Union[Dict, Iterator[Dict]]:

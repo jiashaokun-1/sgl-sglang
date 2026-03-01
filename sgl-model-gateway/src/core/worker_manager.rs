@@ -18,7 +18,10 @@ use tokio::{
 use tracing::{debug, info, warn};
 
 use crate::{
-    core::{metrics_aggregator::MetricPack, ConnectionMode, Worker, WorkerRegistry, WorkerType},
+    core::{
+        metrics_manager::MetricPack, ConnectionMode, Worker, WorkerLoadManager, WorkerRegistry,
+        WorkerType,
+    },
     policies::PolicyRegistry,
     protocols::worker_spec::{FlushCacheResult, WorkerLoadInfo, WorkerLoadsResult},
 };
@@ -178,15 +181,24 @@ impl WorkerManager {
                 let client = client.clone();
 
                 async move {
-                    let load = if is_http {
+                    let dp_rank_loads = if is_http {
                         Self::parse_load_response(&client, &url, api_key.as_deref()).await
+                    } else {
+                        let metrics_url = worker.metrics_url().to_string();
+                        Self::parse_load_response(&client, &metrics_url, api_key.as_deref()).await
+                    };
+
+                    let load = if !dp_rank_loads.is_empty() {
+                        dp_rank_loads.values().sum::<isize>()
                     } else {
                         -1
                     };
+
                     WorkerLoadInfo {
                         worker: url,
                         worker_type,
                         load,
+                        dp_rank_loads,
                     }
                 }
             })
@@ -208,24 +220,24 @@ impl WorkerManager {
         client: &reqwest::Client,
         url: &str,
         api_key: Option<&str>,
-    ) -> isize {
-        let load_url = format!("{}/get_load", url);
+    ) -> HashMap<isize, isize> {
+        let load_url = format!("{}/metrics", url);
         let mut req = client.get(&load_url).timeout(REQUEST_TIMEOUT);
         if let Some(key) = api_key {
             req = req.bearer_auth(key);
         }
 
         match req.send().await {
-            Ok(r) if r.status().is_success() => match r.json::<Value>().await {
-                Ok(json) if json.is_array() => json
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .filter_map(|e| e.get("num_tokens").and_then(|v| v.as_i64()))
-                    .sum::<i64>() as isize,
-                _ => -1,
-            },
-            _ => -1,
+            Ok(r) if r.status().is_success() => {
+                if let Ok(text) = r.text().await {
+                    return crate::core::metrics_manager::extract_gauge_metrics(
+                        text,
+                        "sglang_num_used_tokens",
+                    );
+                }
+                HashMap::new()
+            }
+            _ => HashMap::new(),
         }
     }
 
@@ -259,7 +271,7 @@ impl WorkerManager {
             return EngineMetricsResult::Err("All backend requests failed".to_string());
         }
 
-        match crate::core::metrics_aggregator::aggregate_metrics(metric_packs) {
+        match crate::core::metrics_manager::aggregate_metrics(metric_packs) {
             Ok(text) => EngineMetricsResult::Ok(text),
             Err(e) => EngineMetricsResult::Err(format!("Failed to aggregate metrics: {}", e)),
         }
@@ -270,6 +282,7 @@ impl WorkerManager {
 pub struct LoadMonitor {
     worker_registry: Arc<WorkerRegistry>,
     policy_registry: Arc<PolicyRegistry>,
+    pub worker_load_manager: Arc<WorkerLoadManager>,
     client: reqwest::Client,
     interval: Duration,
     tx: watch::Sender<HashMap<String, isize>>,
@@ -289,6 +302,7 @@ impl LoadMonitor {
         Self {
             worker_registry,
             policy_registry,
+            worker_load_manager: Arc::new(WorkerLoadManager::new()),
             client,
             interval: Duration::from_secs(interval_secs),
             tx,
@@ -311,12 +325,21 @@ impl LoadMonitor {
 
         let worker_registry = Arc::clone(&self.worker_registry);
         let policy_registry = Arc::clone(&self.policy_registry);
+        let worker_load_manager = Arc::clone(&self.worker_load_manager);
         let client = self.client.clone();
         let interval = self.interval;
         let tx = self.tx.clone();
 
         let handle = tokio::spawn(async move {
-            Self::monitor_loop(worker_registry, policy_registry, client, interval, tx).await;
+            Self::monitor_loop(
+                worker_registry,
+                policy_registry,
+                worker_load_manager,
+                client,
+                interval,
+                tx,
+            )
+            .await;
         });
 
         *handle_guard = Some(handle);
@@ -338,6 +361,7 @@ impl LoadMonitor {
     async fn monitor_loop(
         worker_registry: Arc<WorkerRegistry>,
         policy_registry: Arc<PolicyRegistry>,
+        worker_load_manager: Arc<WorkerLoadManager>,
         client: reqwest::Client,
         interval: Duration,
         tx: watch::Sender<HashMap<String, isize>>,
@@ -346,10 +370,11 @@ impl LoadMonitor {
 
         loop {
             interval_timer.tick().await;
-
             let power_of_two_policies = policy_registry.get_all_power_of_two_policies();
 
-            if power_of_two_policies.is_empty() {
+            if power_of_two_policies.is_empty()
+                && !policy_registry.is_dp_minimum_tokens_scheduler_enabled()
+            {
                 debug!("No PowerOfTwo policies found, skipping load fetch");
                 continue;
             }
@@ -357,8 +382,10 @@ impl LoadMonitor {
             let result = WorkerManager::get_all_worker_loads(&worker_registry, &client).await;
 
             let mut loads = HashMap::new();
+            let mut dp_rank_loads = HashMap::new();
             for load_info in result.loads {
-                loads.insert(load_info.worker, load_info.load);
+                loads.insert(load_info.worker.clone(), load_info.load);
+                dp_rank_loads.insert(load_info.worker, load_info.dp_rank_loads);
             }
 
             if !loads.is_empty() {
@@ -370,6 +397,7 @@ impl LoadMonitor {
                 for policy in &power_of_two_policies {
                     policy.update_loads(&loads);
                 }
+                worker_load_manager.update_dp_loads(&dp_rank_loads);
                 let _ = tx.send(loads);
             } else {
                 warn!("No loads fetched from workers");

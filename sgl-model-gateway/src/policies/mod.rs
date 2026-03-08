@@ -20,6 +20,7 @@ mod prefix_hash;
 mod random;
 mod registry;
 mod round_robin;
+mod dp_min_token;
 pub mod tree;
 pub(crate) mod utils;
 pub use bucket::BucketPolicy;
@@ -33,6 +34,7 @@ pub use random::RandomPolicy;
 pub use registry::PolicyRegistry;
 pub use round_robin::RoundRobinPolicy;
 pub use tree::PrefixMatchResult;
+pub use dp_min_token::MinimumTokensPolicy;
 
 /// Core trait for load balancing policies
 ///
@@ -92,6 +94,16 @@ pub trait LoadBalancingPolicy: Send + Sync + Debug {
     /// Get as Any for downcasting
     fn as_any(&self) -> &dyn std::any::Any;
 }
+
+#[async_trait]
+pub trait DPRankLoadPolicy: Send + Sync + Debug {
+    async fn select_dp_rank(
+        &self,
+        worker: &dyn Worker,
+        text_str: isize,
+    ) -> Option<isize>;
+}
+
 
 /// Configuration for cache-aware policy
 #[derive(Debug, Clone)]

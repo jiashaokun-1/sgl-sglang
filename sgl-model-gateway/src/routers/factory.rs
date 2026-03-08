@@ -12,7 +12,7 @@ use crate::{
     app_context::AppContext,
     config::{PolicyConfig, RoutingMode},
     core::ConnectionMode,
-    policies::PolicyFactory,
+    policies::{PolicyFactory, MinimumTokensPolicy},
 };
 
 /// Factory for creating router instances based on configuration
@@ -85,6 +85,14 @@ impl RouterFactory {
         ctx.policy_registry.set_prefill_policy(prefill_policy);
         ctx.policy_registry.set_decode_policy(decode_policy);
 
+        let config = ctx.router_config.clone()
+        if config.dp_minimum_tokens_scheduler {
+            let dpRankPolicy = MinimumTokensPolicy::new(ctx.load_monitor
+                .as_ref()
+                .map(|load_monitor_arc| load_monitor_arc.worker_load_manager.clone()));
+            ctx.policy_registry.set_dp_rank_policy(dpRankPolicy);
+        }
+
         let router = PDRouter::new(ctx).await?;
 
         Ok(Box::new(router))
@@ -111,6 +119,15 @@ impl RouterFactory {
 
         ctx.policy_registry.set_prefill_policy(prefill_policy);
         ctx.policy_registry.set_decode_policy(decode_policy);
+
+        let config = ctx.router_config.clone()
+        if config.dp_minimum_tokens_scheduler {
+            let dpRankPolicy = MinimumTokensPolicy::new(ctx.load_monitor
+                .as_ref()
+                .map(|load_monitor_arc| load_monitor_arc.worker_load_manager.clone()));
+            ctx.policy_registry.set_dp_rank_policy(dpRankPolicy);
+        }
+
         let router = GrpcPDRouter::new(ctx).await?;
 
         Ok(Box::new(router))

@@ -39,8 +39,9 @@ pub struct PolicyRegistry {
     /// When None, the registry works independently without mesh synchronization
     /// Uses RwLock for thread-safe access when setting mesh_sync after initialization
     mesh_sync: Arc<RwLock<OptionalMeshSyncManager>>,
-    /// Enable minimum tokens scheduler for dp group
-    dp_minimum_tokens_scheduler: Arc<AtomicBool>,
+
+    // DP-rank policy: Supports the selection of dp-rank outside the engine.
+    dp_rank_policy: Arc<OnceLock<Arc<dyn DPRankLoadPolicy>>>
 }
 
 impl PolicyRegistry {
@@ -244,6 +245,17 @@ impl PolicyRegistry {
         // OnceLock::set returns Err if already set, which we ignore since
         // the policy should only be set once at startup
         let _ = self.prefill_policy.set(policy);
+    }
+
+    pub fn set_dp_rank_policy(&self, policy: Arc<dyn DPRankLoadPolicy>) {
+        // OnceLock::set returns Err if already set, which we ignore since
+        // the policy should only be set once at startup
+        debug!("jskTest set_dp_rank_policy:{}", policy);
+        let _ = self.dp_rank_policy.set(policy);
+    }
+
+    pub fn get_dp_rank_policy(&self) -> Option<Arc<dyn DPRankLoadPolicy>> {
+        self.dp_rank_policy.get().map(Arc::clone)
     }
 
     /// Set the decode policy for PD mode (lock-free, set once at startup)

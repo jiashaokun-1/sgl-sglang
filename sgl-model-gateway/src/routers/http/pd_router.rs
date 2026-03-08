@@ -52,6 +52,7 @@ pub struct PDRouter {
     pub retry_config: RetryConfig,
     pub api_key: Option<String>,
     pub enable_igw: bool,
+    worker_load_manager: Option<Arc<WorkerLoadManager>>,
 }
 
 #[derive(Clone)]
@@ -165,6 +166,9 @@ impl PDRouter {
             retry_config: ctx.router_config.effective_retry_config(),
             api_key: ctx.router_config.api_key.clone(),
             enable_igw: ctx.router_config.enable_igw,
+            worker_load_manager: ctx.load_monitor
+                .as_ref()
+                .map(|load_monitor_arc| load_monitor_arc.worker_load_manager.clone()),
         })
     }
 
@@ -274,6 +278,12 @@ impl PDRouter {
         Ok(original)
     }
 
+    fn inject_dp_rank_to_json(json_val: &mut Value, rank: isize, rank_key: &str) {
+        if let Some(obj) = json_val.as_object_mut() {
+            obj.insert(rank_key.to_string(), Value::Number(rank.into()));
+        }
+    }
+
     async fn execute_dual_dispatch<T: Serialize + Clone>(
         &self,
         headers: Option<&HeaderMap>,
@@ -341,10 +351,32 @@ impl PDRouter {
                             Err(e) => return Self::handle_serialization_error(e),
                         };
 
+                        let mut prefill_json_request = json_request.clone();
+                        let mut decode_json_request = json_request;
+
+                        let dpRankPolicyOpt = slef.policy_registry.get_dp_rank_policy();
+                        if let Some(dpRankPolicy) = dpRankPolicyOpt.as_ref() {
+                            debug!("jskTest dpRankPolicy is not None");
+                            let text_length: isize = match context.request_text.as_ref() {
+                                Some(text) => text.len().try_into()
+                                    .unwrap_or(0),
+                                None => 0, 
+                            };
+                            let prefill_rank = dpRankPolicy.select_dp_rank(prefill.as_ref(), text_length).await;
+                            let decode_rank = dpRankPolicy.select_dp_rank(decode.as_ref(), text_length).await;
+                            if let (Some(p_rank), Some(d_rank)) = (prefill_rank, decode_rank) {
+                                debug!("jskTest pRank is {}, dRank is {}", p_rank, d_rank);
+                                Self::inject_dp_rank_to_json(&mut prefill_json_request, prefill_rank, "routed_dp_rank");
+                                Self::inject_dp_rank_to_json(&mut decode_json_request, decode_rank, "routed_dp_rank");
+                                Self::inject_dp_rank_to_json(&mut decode_json_request, prefill_rank, "disagg_prefill_dp_rank");
+                            }
+                        }
+
                         let response = self
                             .execute_dual_dispatch_internal(
                                 headers,
-                                json_request,
+                                prefill_json_request,
+                                decode_json_request
                                 context,
                                 Arc::clone(&prefill),
                                 Arc::clone(&decode),
@@ -533,7 +565,8 @@ impl PDRouter {
     async fn execute_dual_dispatch_internal(
         &self,
         headers: Option<&HeaderMap>,
-        json_request: Value,
+        prefill_json_request: Value,
+        decode_json_request: Value,
         context: PDRequestContext<'_>,
         prefill: Arc<dyn Worker>,
         decode: Arc<dyn Worker>,
@@ -551,7 +584,7 @@ impl PDRouter {
         let headers = Some(&headers_with_trace);
 
         // Build both requests
-        let prefill_request = self.build_post_with_headers(
+        let prefill_json_request = self.build_post_with_headers(
             &self.client,
             prefill.url(),
             context.route,
@@ -563,7 +596,7 @@ impl PDRouter {
             &self.client,
             decode.url(),
             context.route,
-            &json_request,
+            &decode_json_request,
             headers,
             false,
         );

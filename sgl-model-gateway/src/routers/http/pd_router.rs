@@ -19,8 +19,8 @@ use super::pd_types::api_path;
 use crate::{
     config::types::RetryConfig,
     core::{
-        is_retryable_status, HashRing, RetryExecutor, Worker, WorkerLoadGuard, WorkerLoadManager, 
-        WorkerRegistry, WorkerType, UNKNOWN_MODEL_ID,
+        is_retryable_status, HashRing, RetryExecutor, Worker, WorkerLoadGuard, WorkerRegistry,
+        WorkerType, UNKNOWN_MODEL_ID,
     },
     observability::{
         events::{self, Event},
@@ -52,7 +52,6 @@ pub struct PDRouter {
     pub retry_config: RetryConfig,
     pub api_key: Option<String>,
     pub enable_igw: bool,
-    worker_load_manager: Option<Arc<WorkerLoadManager>>,
 }
 
 #[derive(Clone)]
@@ -166,9 +165,6 @@ impl PDRouter {
             retry_config: ctx.router_config.effective_retry_config(),
             api_key: ctx.router_config.api_key.clone(),
             enable_igw: ctx.router_config.enable_igw,
-            worker_load_manager: ctx.load_monitor
-                .as_ref()
-                .map(|load_monitor_arc| load_monitor_arc.worker_load_manager.clone()),
         })
     }
 
